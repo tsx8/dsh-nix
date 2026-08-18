@@ -1,0 +1,17 @@
+# Nix build artifacts
+result
+result-*
+docs-build
+
+# direnv
+.direnv/
+
+# Local nix caches (e.g. from XDG_CACHE_HOME redirects during development)
+.cache/
+
+# Editors
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
