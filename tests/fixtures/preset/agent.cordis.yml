@@ -1,5 +1,0 @@
-- id: fixture
-  name: '@deepseek-ai/dsh-persona'
-  config:
-    text: Fixture preset
-    complete: true

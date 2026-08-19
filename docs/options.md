@@ -65,7 +65,9 @@ pkgs.callPackage ../packages/deepseek-harness/package.nix { }
 
 ## programs\.deepseek-harness\.agentPresets
 
-Explicit user presets under ` $DSH_HOME/.agent-presets `\.
+Explicit user presets under ` $DSH_HOME/.agent-presets `\. Preset IDs
+must match ` ^[a-z0-9][a-z0-9-]*$ ` and must not reuse a shipped
+preset ID (DSH silently shadows such presets with its own)\.
 
 
 
@@ -85,7 +87,24 @@ attribute set of (submodule)
 *Example:*
 
 ```nix
-{ my-preset.source = ./my-preset; }
+{
+  my-code = {
+    agentCordis = [
+      {
+        id = "persona";
+        name = "@deepseek-ai/dsh-persona";
+        config.text = "You are a software engineering assistant.";
+      }
+    ];
+    preset = {
+      name = "My Code";
+      description = "Custom coding preset.";
+      order = 10;
+    };
+    files."skills/local-helper" = ./skills/local-helper;
+  };
+}
+
 ```
 
 *Declared by:*
@@ -93,16 +112,77 @@ attribute set of (submodule)
 
 
 
-## programs\.deepseek-harness\.agentPresets\.\<name>\.source
+## programs\.deepseek-harness\.agentPresets\.\<name>\.agentCordis
 
 
 
-Preset directory containing ` agent.cordis.yml `\.
+The preset composition, written to ` agent.cordis.yml `\. Use
+` dsh-nix.lib.yamlTag ` for ` !!js ` expressions\.
 
 
 
 *Type:*
-absolute path
+YAML 1\.1 value
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
+
+
+
+## programs\.deepseek-harness\.agentPresets\.\<name>\.files
+
+
+
+Additional preset resources, keyed by a safe relative path
+inside the preset directory (e\.g\. ` "skills/foo" `)\. Keys
+must not be ` agent.cordis.yml ` or ` preset.yml `, and no key
+may be a path prefix of another key\.
+
+
+
+*Type:*
+attribute set of absolute path
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+*Declared by:*
+ - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
+
+
+
+## programs\.deepseek-harness\.agentPresets\.\<name>\.preset
+
+
+
+Optional ` preset.yml ` display metadata\. DSH defines its
+accepted fields; unknown fields are DSH’s to ignore\.
+
+
+
+*Type:*
+null or YAML 1\.1 value
+
+
+
+*Default:*
+
+```nix
+null
+```
 
 *Declared by:*
  - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
@@ -113,46 +193,8 @@ absolute path
 
 
 
-The user-global ` $DSH_HOME/AGENTS.md `\. Exactly one of
-` programs.deepseek-harness.agentsFile.text ` or
-` programs.deepseek-harness.agentsFile.source ` must be set\.
-
-
-
-*Type:*
-null or (submodule)
-
-
-
-*Default:*
-
-```nix
-null
-```
-
-
-
-*Example:*
-
-```nix
-{
-  text = ''
-    # Project agents
-    Instructions shared by all agents in this project.
-  '';
-}
-```
-
-*Declared by:*
- - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
-
-
-
-## programs\.deepseek-harness\.agentsFile\.source
-
-
-
-Path to the source file or directory\.
+The user-global ` $DSH_HOME/AGENTS.md `\. Inline content can be passed
+as a derivation, e\.g\. ` pkgs.writeText "AGENTS.md" ''...'' `\.
 
 
 
@@ -167,28 +209,12 @@ null or absolute path
 null
 ```
 
-*Declared by:*
- - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
 
 
-
-## programs\.deepseek-harness\.agentsFile\.text
-
-
-
-Inline file contents\.
-
-
-
-*Type:*
-null or strings concatenated with “\\n”
-
-
-
-*Default:*
+*Example:*
 
 ```nix
-null
+./AGENTS.md
 ```
 
 *Declared by:*
@@ -200,13 +226,14 @@ null
 
 
 
-The global ` $DSH_HOME/cordis.patch.yml `\. Exactly one of
-` structured `, ` text `, or ` source ` must be set\.
+The global ` $DSH_HOME/cordis.patch.yml ` composition layer, applied
+over every profile’s own layer\. A ` null ` value means Home Manager
+does not own the file\.
 
 
 
 *Type:*
-null or (submodule)
+null or YAML 1\.1 value
 
 
 
@@ -221,87 +248,13 @@ null
 *Example:*
 
 ```nix
-{
-  structured = [
-    {
-      disabled = true;
-      id = "hmr";
-    }
-  ];
-}
-```
+[
+  {
+    id = "hmr";
+    disabled = true;
+  }
+]
 
-*Declared by:*
- - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
-
-
-
-## programs\.deepseek-harness\.cordisPatch\.source
-
-
-
-Path to a complete Cordis patch YAML file\.
-
-
-
-*Type:*
-null or absolute path
-
-
-
-*Default:*
-
-```nix
-null
-```
-
-*Declared by:*
- - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
-
-
-
-## programs\.deepseek-harness\.cordisPatch\.structured
-
-
-
-A structured Cordis patch list\. Use ` text ` or
-` source ` for YAML tags such as ` !!js `\.
-
-
-
-*Type:*
-null or (list of attribute set of (YAML 1\.1 value))
-
-
-
-*Default:*
-
-```nix
-null
-```
-
-*Declared by:*
- - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
-
-
-
-## programs\.deepseek-harness\.cordisPatch\.text
-
-
-
-Complete Cordis patch YAML text\.
-
-
-
-*Type:*
-null or strings concatenated with “\\n”
-
-
-
-*Default:*
-
-```nix
-null
 ```
 
 *Declared by:*
@@ -338,9 +291,10 @@ config.home.homeDirectory + "/.dsh"
 
 
 
-Explicit immutable profiles under ` $DSH_HOME/profiles `\. The module
-owns only ` package.json ` and ` cordis.patch.yml ` inside each declared
-profile\.
+Explicit Home Manager-managed profiles under ` $DSH_HOME/profiles `\.
+A declared profile is fully owned by Home Manager (` package.json `,
+` cordis.patch.yml `, ` node_modules `); do not run ` dsh plugin ` on it\.
+Undeclared profiles keep DSH’s native pnpm-backed management\.
 
 
 
@@ -361,12 +315,24 @@ attribute set of (submodule)
 
 ```nix
 {
-  work = {
+  web = {
+    dependencies = {
+      "dsh-context" = dshContext;
+    };
     bundles = [
       "@deepseek-ai/dsh-base"
+      "@deepseek-ai/dsh-web-app"
+      "dsh-context"
+    ];
+    cordisPatch = [
+      {
+        id = "some-profile-override";
+        config.foo = "bar";
+      }
     ];
   };
 }
+
 ```
 
 *Declared by:*
@@ -402,20 +368,21 @@ list of string
 
 
 
-Profile-local ` cordis.patch.yml `\. A null value generates the
-valid empty patch list ` [] `\.
+The profile-local ` cordis.patch.yml ` layer, applied after
+every bundle layer and before the global
+` programs.deepseek-harness.cordisPatch `\.
 
 
 
 *Type:*
-null or (submodule)
+YAML 1\.1 value
 
 
 
 *Default:*
 
 ```nix
-null
+[ ]
 ```
 
 *Declared by:*
@@ -423,91 +390,24 @@ null
 
 
 
-## programs\.deepseek-harness\.profiles\.\<name>\.cordisPatch\.source
+## programs\.deepseek-harness\.profiles\.\<name>\.dependencies
 
 
 
-Path to a complete Cordis patch YAML file\.
-
-
-
-*Type:*
-null or absolute path
-
-
-
-*Default:*
-
-```nix
-null
-```
-
-*Declared by:*
- - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
-
-
-
-## programs\.deepseek-harness\.profiles\.\<name>\.cordisPatch\.structured
-
-
-
-A structured Cordis patch list\. Use ` text ` or
-` source ` for YAML tags such as ` !!js `\.
+External Node packages of this profile, keyed by npm
+package name\. Each package must expose
+` ${pkg}/lib/node_modules/<name>/ ` (the ` buildNpmPackage `
+layout); it is linked into the profile’s ` node_modules ` as
+a read-only store tree\. Build details (lockfiles, fetchers,
+build scripts) belong to the package derivation, not to
+this module\. In-box bundle names always resolve from the
+DSH installation first, so a dependency whose name collides
+with an installed package is shadowed for bundle resolution\.
 
 
 
 *Type:*
-null or (list of attribute set of (YAML 1\.1 value))
-
-
-
-*Default:*
-
-```nix
-null
-```
-
-*Declared by:*
- - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
-
-
-
-## programs\.deepseek-harness\.profiles\.\<name>\.cordisPatch\.text
-
-
-
-Complete Cordis patch YAML text\.
-
-
-
-*Type:*
-null or strings concatenated with “\\n”
-
-
-
-*Default:*
-
-```nix
-null
-```
-
-*Declared by:*
- - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
-
-
-
-## programs\.deepseek-harness\.skills
-
-
-
-Explicit skills under ` $DSH_HOME/skills `\. Each attribute must set
-exactly one of ` text ` or ` source `; a source may be a
-` SKILL.md ` file or a directory containing one\.
-
-
-
-*Type:*
-attribute set of (submodule)
+attribute set of package
 
 
 
@@ -523,17 +423,10 @@ attribute set of (submodule)
 
 ```nix
 {
-  hello = {
-    text = ''
-      ---
-      name: hello
-      description: A sample skill.
-      ---
-      
-      # Hello
-    '';
-  };
+  "dsh-context" = dshContext;
+  "@chaoset/sandbox-extra-roots" = sandboxExtraRoots;
 }
+
 ```
 
 *Declared by:*
@@ -541,47 +434,38 @@ attribute set of (submodule)
 
 
 
-## programs\.deepseek-harness\.skills\.\<name>\.source
+## programs\.deepseek-harness\.skills
 
 
 
-Path to the source file or directory\.
+Explicit skills under ` $DSH_HOME/skills `\. A directory value is
+linked as ` skills/<name>/ `; a regular file value is linked as
+` skills/<name>/SKILL.md `\. The effective skill id is the ` name ` in
+the SKILL\.md frontmatter, which DSH validates at runtime; the
+attribute name only picks the directory segment\.
 
 
 
 *Type:*
-null or absolute path
+attribute set of absolute path
 
 
 
 *Default:*
 
 ```nix
-null
+{ }
 ```
 
-*Declared by:*
- - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
 
 
-
-## programs\.deepseek-harness\.skills\.\<name>\.text
-
-
-
-Inline file contents\.
-
-
-
-*Type:*
-null or strings concatenated with “\\n”
-
-
-
-*Default:*
+*Example:*
 
 ```nix
-null
+{
+  j-space = ./skills/j-space;
+}
+
 ```
 
 *Declared by:*

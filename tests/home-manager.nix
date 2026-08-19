@@ -1,8 +1,8 @@
-{ ... }:
-
-let
-  fixturePreset = ./fixtures/preset;
-in
+{
+  fixtureDep,
+  yamlTag,
+  ...
+}:
 {
   home.username = "dsh-test";
   home.homeDirectory = "/tmp/dsh-test";
@@ -12,11 +12,10 @@ in
     enable = true;
     package = null;
     dshHome = "/tmp/dsh-test/.local/share/dsh-fixture";
-    agentsFile = {
-      source = ./fixtures/AGENTS.md;
-    };
 
-    cordisPatch.structured = [
+    agentsFile = ./fixtures/AGENTS.md;
+
+    cordisPatch = [
       {
         id = "hmr";
         disabled = true;
@@ -24,36 +23,61 @@ in
     ];
 
     skills = {
-      text-fixture = {
-        source = ./fixtures/skill-text.md;
-      };
-      directory-fixture = {
-        source = ./fixtures/skill;
-      };
-      inline-fixture.text = ''
-        ---
-        name: inline-fixture
-        description: A fixture skill generated from inline Nix text.
-        ---
-
-        # Inline skill
-      '';
+      file-fixture = ./fixtures/skill-text.md;
+      directory-fixture = ./fixtures/skill;
     };
 
-    agentPresets.fixture = {
-      source = fixturePreset;
+    agentPresets.my-preset = {
+      agentCordis = [
+        {
+          id = "persona";
+          name = "@deepseek-ai/dsh-persona";
+          config = {
+            text = "Fixture preset";
+            complete = true;
+          };
+        }
+
+        {
+          id = "fs-local";
+          name = "@deepseek-ai/dsh-fs-local";
+          config.cwd = yamlTag "js" "process.env.DSH_CWD ?? process.cwd()";
+        }
+      ];
+
+      preset = {
+        name = "My Preset";
+        description = "A fixture preset.";
+        order = 10;
+      };
+
+      files."skills/local-helper" = ./fixtures/skill;
     };
 
     profiles.fixture = {
-      bundles = [ "@deepseek-ai/dsh-base" ];
-      cordisPatch.text = ''
-        - id: agent-default-model
-          config:
-            provider: deepseek-official
-            model: fixture-model
-      '';
+      dependencies."dsh-context" = fixtureDep;
+      bundles = [
+        "@deepseek-ai/dsh-base"
+        "dsh-context"
+      ];
+      cordisPatch = [
+        {
+          id = "agent-default-model";
+          config = {
+            provider = "deepseek-official";
+            model = "fixture-model";
+          };
+        }
+      ];
     };
 
-    profiles.empty.bundles = [ ];
+    profiles.bundle-only = {
+      dependencies."dsh-context" = fixtureDep;
+      bundles = [
+        "@deepseek-ai/dsh-base"
+        "dsh-context"
+      ];
+      cordisPatch = [ ];
+    };
   };
 }
