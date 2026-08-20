@@ -121,11 +121,16 @@ Adding or upgrading a dependency:
 5. Copy that hash into `pnpmDepsHash`.
 6. Build again.
 
-Git-hosted plugins that need their `prepare` script to run on install:
+`pnpmWorkspace.allowBuilds` controls which dependency build scripts run during
+the profile build. Registry and prebuilt Git/URL dependencies are supported.
+Git-hosted dependencies whose distributable package must first be produced by
+a source-only `prepare` step (a build needing the repo's own devDependencies)
+depend on pnpm/fetchPnpmDeps support for that source form and are not
+guaranteed:
 
 ```nix
 profiles.web = {
-  dependencies."my-plugin" = "github:user/my-plugin";
+  dependencies."my-plugin" = "github:user/my-plugin#v1.2.3"; # pin a commit or tag
   pnpmWorkspace = {
     packages = [ "." ];
     nodeLinker = "hoisted";
@@ -135,6 +140,9 @@ profiles.web = {
   pnpmDepsHash = "sha256-...";
 };
 ```
+
+Pin Git/URL dependencies to a commit or tag: an unpinned branch like `#main`
+resolves differently over time, breaking the fixed-output hash.
 
 `pnpmWorkspace = null` (the default) keeps the canonical
 `pnpm-workspace.yaml` the current DSH generates; a non-`null` value fully

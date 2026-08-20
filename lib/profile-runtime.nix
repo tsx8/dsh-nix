@@ -26,9 +26,9 @@
 #      pnpm) resolves the real lockfile through `prePnpmInstall` and fetches the
 #      fixed pnpm store; its `postInstall` copies the resolved lockfile out.
 #   3. The runtime derivation swaps the resolved lockfile in, runs Nixpkgs'
-#      `pnpmConfigHook` (offline frozen install, `--ignore-scripts`), then a
-#      second offline frozen install without `--ignore-scripts` so `allowBuilds`
-#      lifecycle scripts run inside the Nix sandbox.
+#      `pnpmConfigHook` (offline frozen install, `--ignore-scripts`), then
+#      `pnpm rebuild` so `allowBuilds` lifecycle scripts run inside the Nix
+#      sandbox against the already-installed graph.
 #   4. `DSH_HOME=$out dsh --profile <name> --dump-default-config` makes DSH
 #      itself build the `profiles/node_modules` host fallback and validates the
 #      manifest, bundle resolution, and bundle patch composition; the temporary
@@ -139,8 +139,11 @@ in
       };
 
       # 3. The sandboxed profile runtime. The real lockfile replaces the
-      # placeholder before pnpmConfigHook's frozen install; the second install
-      # reuses the same fixed store and runs allowed lifecycle scripts.
+      # placeholder before pnpmConfigHook's frozen install; `pnpm rebuild`
+      # then runs the allowed lifecycle scripts against the installed graph.
+      # Never a second install: re-importing a git/URL dependency offline
+      # fails with ERR_PNPM_NO_OFFLINE_TARBALL (the fetched source is not
+      # kept in the fixed store for a full re-import).
       profileRuntime = pkgs.stdenv.mkDerivation {
         pname = "dsh-profile-${name}-runtime";
         version = "0";
@@ -156,10 +159,9 @@ in
         '';
         buildPhase = ''
           runHook preBuild
-          # pnpmConfigHook installs with --ignore-scripts; a fresh offline
-          # frozen install is what runs `allowBuilds` lifecycle scripts.
-          rm -rf node_modules
-          pnpm install --offline --frozen-lockfile
+          # pnpmConfigHook installs with --ignore-scripts; `pnpm rebuild` runs
+          # the `allowBuilds` lifecycle scripts against the installed graph.
+          pnpm rebuild
           runHook postBuild
         '';
         installPhase = ''

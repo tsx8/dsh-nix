@@ -1,7 +1,15 @@
-# Fixed-output hashes of the fixture profile's dependency closure
-# (`dsh-llm-codex@0.1.2`), per build system. The closure is resolved and
-# fetched with `fetchPnpmDeps fetcherVersion = 4` using the DSH-paired pnpm;
-# the hash covers the resolved `pnpm-lock.yaml` plus the fetched pnpm store.
+# Fixed-output hashes of the fixture profiles' dependency closures, per build
+# system and per profile:
+#
+#   fixture  dsh-llm-codex from Git (github:NOirBRight/dsh-llm-codex pinned to
+#            the v0.2.5 commit ac5866543ccd44c75a96ba779629ac7a47fc1f50), the
+#            non-registry regression profile.
+#   registry dsh-llm-codex 0.1.2 from the npm registry, the registry-spec
+#            coverage profile.
+#
+# Each closure is resolved and fetched with `fetchPnpmDeps fetcherVersion = 4`
+# using the DSH-paired pnpm; the hash covers the resolved `pnpm-lock.yaml`
+# plus the fetched pnpm store.
 #
 # The hash is expected to be identical across systems: `--force` fetches every
 # package in the lockfile (all platform variants), the lockfile is resolved
@@ -15,7 +23,16 @@
 # `lib.fakeHash`), build, and copy the `got: sha256-...` from the failed
 # fixed-output build.
 {
-  x86_64-linux = "sha256-nHloXiNvKb1UjZ/lbqpIV8IIV7A3jjSeXDC7yqavKC0=";
-  aarch64-linux = "sha256-nHloXiNvKb1UjZ/lbqpIV8IIV7A3jjSeXDC7yqavKC0=";
-  aarch64-darwin = "sha256-nHloXiNvKb1UjZ/lbqpIV8IIV7A3jjSeXDC7yqavKC0=";
+  x86_64-linux = {
+    fixture = "sha256-TAQiJ4iDWSzPxdn2s2msReTsoXZO7y4xI/qTBSOwsp4=";
+    registry = "sha256-nHloXiNvKb1UjZ/lbqpIV8IIV7A3jjSeXDC7yqavKC0=";
+  };
+  aarch64-linux = {
+    fixture = "sha256-TAQiJ4iDWSzPxdn2s2msReTsoXZO7y4xI/qTBSOwsp4=";
+    registry = "sha256-nHloXiNvKb1UjZ/lbqpIV8IIV7A3jjSeXDC7yqavKC0=";
+  };
+  aarch64-darwin = {
+    fixture = "sha256-TAQiJ4iDWSzPxdn2s2msReTsoXZO7y4xI/qTBSOwsp4=";
+    registry = "sha256-nHloXiNvKb1UjZ/lbqpIV8IIV7A3jjSeXDC7yqavKC0=";
+  };
 }

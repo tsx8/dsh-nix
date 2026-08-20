@@ -1,6 +1,7 @@
 {
   yamlTag,
   profileHash,
+  registryHash,
   hmPackage ? null,
   ...
 }:
@@ -58,9 +59,15 @@
       files."skills/local-helper" = ./fixtures/skill;
     };
 
+    # The main regression profile: a real Git-hosted plugin (pinned commit)
+    # exercising the non-registry dependency path through fetchPnpmDeps and
+    # the runtime builder. dsh-llm-codex v0.2.5 ships committed `lib/`
+    # artifacts and has no install/prepare/postinstall scripts, so its
+    # runtime needs no allowBuilds; the host-peer scenario is covered by the
+    # runtime check.
     profiles.fixture = {
       dependencies = {
-        "dsh-llm-codex" = "0.1.2";
+        "dsh-llm-codex" = "github:NOirBRight/dsh-llm-codex#ac5866543ccd44c75a96ba779629ac7a47fc1f50";
       };
       bundles = [
         "@deepseek-ai/dsh-base"
@@ -77,6 +84,20 @@
         }
       ];
       pnpmDepsHash = profileHash;
+    };
+
+    # Registry-spec coverage: the same plugin fetched from the npm registry,
+    # proving the registry dependency path still works alongside the Git one.
+    profiles.registry = {
+      dependencies = {
+        "dsh-llm-codex" = "0.1.2";
+      };
+      bundles = [
+        "@deepseek-ai/dsh-base"
+        "dsh-llm-codex"
+      ];
+      cordisPatch = [ ];
+      pnpmDepsHash = registryHash;
     };
 
     # An installation-owned-only profile: no dependency closure, no fetch,

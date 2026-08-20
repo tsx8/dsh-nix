@@ -511,8 +511,12 @@ null
 The profile’s ` pnpm-workspace.yaml `\. ` null ` keeps the
 canonical workspace the current DSH generates on profile
 initialization\. A non-` null ` value completely replaces it —
-e\.g\. to allow a git-hosted plugin’s ` prepare ` script via
-` allowBuilds `\.
+e\.g\. ` allowBuilds ` controls which dependency build scripts
+run during the profile build\. Registry and prebuilt Git/URL
+dependencies are fully supported; a Git-hosted dependency
+whose distributable package must first be produced by a
+source-only ` prepare ` step depends on pnpm/fetchPnpmDeps
+support for that source form and is not guaranteed\.
 
 
 

@@ -34,8 +34,9 @@
 
       mkPackage = system: (mkPkgs system).callPackage ./packages/deepseek-harness/package.nix { };
 
-      # The fixed-output dependency-closure hash of the fixture profile
-      # (tests/home-manager.nix), per build system.
+      # The fixed-output dependency-closure hashes of the fixture profiles
+      # (tests/home-manager.nix), per build system: `fixture` is the Git-hosted
+      # regression profile, `registry` the registry-spec coverage profile.
       profileHashes = import ./tests/profile-hashes.nix;
 
       # Render a module's options as Markdown for docs/options.md without
@@ -173,7 +174,8 @@
         let
           pkgs = mkPkgs system;
           deepseek-harness = mkPackage system;
-          profileHash = profileHashes.${system};
+          profileHash = profileHashes.${system}.fixture;
+          registryHash = profileHashes.${system}.registry;
           isLinux = lib.hasSuffix "linux" system;
 
           # Standalone Home Manager configuration: HM installs DSH itself
@@ -182,7 +184,7 @@
             inherit pkgs;
             extraSpecialArgs = {
               hmPackage = deepseek-harness;
-              inherit profileHash;
+              inherit profileHash registryHash;
               yamlTag = self.lib.yamlTag;
             };
             modules = [
@@ -222,7 +224,7 @@
                 jq -e '
                   .name == "dsh-profile-fixture"
                   and .private == true
-                  and .dependencies == {"dsh-llm-codex": "0.1.2"}
+                  and .dependencies == {"dsh-llm-codex": "github:NOirBRight/dsh-llm-codex#ac5866543ccd44c75a96ba779629ac7a47fc1f50"}
                   and .dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-llm-codex"]
                 ' "$manifest"
 
@@ -231,7 +233,8 @@
                 grep -Fx 'autoInstallPeers: false' "$files/profiles/fixture/pnpm-workspace.yaml"
 
                 # The profile node_modules is one whole directory symlink into
-                # the runtime store (never recursive per-file links).
+                # the runtime store (never recursive per-file links), and the
+                # Git-hosted plugin's committed build artifacts are present.
                 test -L "$files/profiles/fixture/node_modules"
                 test -d "$files/profiles/fixture/node_modules"
                 test -f "$files/profiles/fixture/node_modules/dsh-llm-codex/lib/index.js"
@@ -244,6 +247,19 @@
                 # deploys it, and the runtime derivation removed the copy DSH
                 # wrote during the build-time dump.
                 test ! -e "$files/profiles/fixture/cordis.yml"
+
+                # The registry-spec coverage profile installs from the npm
+                # registry; its manifest keeps the plain version spec.
+                manifest="$files/profiles/registry/package.json"
+                jq -e '
+                  .name == "dsh-profile-registry"
+                  and .private == true
+                  and .dependencies == {"dsh-llm-codex": "0.1.2"}
+                  and .dsh.profile.bundles == ["@deepseek-ai/dsh-base", "dsh-llm-codex"]
+                ' "$manifest"
+                test -L "$files/profiles/registry/node_modules"
+                test -d "$files/profiles/registry/node_modules"
+                test -f "$files/profiles/registry/node_modules/dsh-llm-codex/lib/index.js"
 
                 # An installation-owned-only profile has no node_modules.
                 test -f "$files/profiles/bundle-only/package.json"
@@ -328,8 +344,15 @@
 
                 # Host peer resolution from the out-of-tree plugin's real
                 # location: the fallback must hand out the DSH installation's
-                # own copy, and the plugin's own dependencies must resolve
-                # inside the profile runtime.
+                # own copy of host packages, and the plugin's own dependencies
+                # must live inside the profile runtime. dsh-llm-codex
+                # (v0.2.5) declares its `@deepseek-ai/*` peers as
+                # peer/devDependencies (autoInstallPeers is off), so they come
+                # from the DSH host fallback, while its sole runtime
+                # dependency `@earendil-works/pi-ai` must be present in the
+                # profile runtime itself. pi-ai's package.json exports are
+                # import-only, so the runtime check uses realpath rather than
+                # CJS require.resolve.
                 ${deepseek-harness.passthru.nodejs}/bin/node -e '
                   const { createRequire } = require("node:module");
                   const { realpathSync } = require("node:fs");
@@ -340,7 +363,7 @@
                     console.error("host package resolved outside the DSH installation: " + host);
                     process.exit(1);
                   }
-                  const own = req.resolve("@deepseek-ai/dsh-llm");
+                  const own = realpathSync(runtime + "/@earendil-works/pi-ai");
                   if (!own.startsWith(runtime)) {
                     console.error("plugin dependency resolved outside the profile runtime: " + own);
                     process.exit(1);
@@ -392,7 +415,7 @@
             extraSpecialArgs = {
               osConfig = nixosModuleEval.config;
               hmPackage = null;
-              inherit profileHash;
+              inherit profileHash registryHash;
               yamlTag = self.lib.yamlTag;
             };
             modules = [
