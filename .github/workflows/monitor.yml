@@ -1,6 +1,7 @@
 # Upstream change monitor for dsh-nix.
 #
-# Two targets, one weekly (Monday 06:00 UTC) run, manual dispatch supported:
+# Two targets, three daily runs at 00:00, 06:00, 12:00 UTC (08:00, 14:00,
+# 20:00 UTC+8), manual dispatch supported:
 #
 # 1. npm-version: compares the pinned version in
 #    packages/deepseek-harness/package.nix against the npm `latest` dist-tag
@@ -23,7 +24,7 @@ name: Monitor upstream
 
 on:
   schedule:
-    - cron: '0 6 * * 1'
+    - cron: '0 0,6,12 * * *'
   workflow_dispatch:
 
 permissions:
@@ -46,7 +47,7 @@ jobs:
       - name: Ensure upstream label
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh label create upstream --force
+        run: gh label create upstream --force --repo "$GITHUB_REPOSITORY"
       - name: Check for newer npm release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -107,7 +108,7 @@ jobs:
       - name: Ensure upstream label
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh label create upstream --force
+        run: gh label create upstream --force --repo "$GITHUB_REPOSITORY"
       - name: Check nixpkgs adoption
         env:
           GH_TOKEN: ${{ github.token }}
@@ -120,7 +121,7 @@ jobs:
             echo "$prs_json" >&2
             exit 1
           }
-          mapfile -t prs <<< "$prs_json"
+          mapfile -t prs < <(printf '%s\n' "$prs_json" | sed '/^$/d')
           if [ "${#prs[@]}" -gt 0 ]; then
             printf 'Open nixpkgs PRs mentioning deepseek-harness:\n%s\n' "${prs[*]}" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -137,7 +138,7 @@ jobs:
               adopted="$name"
               break
             fi
-            if ! grep -q "attribute '${name}' missing" eval.err; then
+            if ! grep -q "does not provide attribute" eval.err; then
               echo "unexpected nix eval failure for ${name}:" >&2
               cat eval.err >&2
               exit 1
@@ -153,7 +154,7 @@ jobs:
                 echo "issue already open: $title"
                 exit 0
               fi
-              body="$(printf 'Open PRs in NixOS/nixpkgs adding deepseek-harness:\n\n%s\n\nThese may be superseded; the authoritative adoption signal is the weekly eval check.' "${prs[*]}")"
+              body="$(printf 'Open PRs in NixOS/nixpkgs adding deepseek-harness:\n\n%s\n\nThese may be superseded; the authoritative adoption signal is the daily eval check.' "${prs[*]}")"
               gh issue create --repo "$GITHUB_REPOSITORY" --label upstream --title "$title" --body "$body"
             fi
             exit 0
