@@ -111,6 +111,15 @@ buildNpmPackage (finalAttrs: {
     npm_config_build_from_source = "true";
   };
 
+  # The toolchain this DSH runtime is built with. Home Manager-managed
+  # profiles are required to use these exact Node/pnpm versions so the
+  # profile dependency graph is built with the same package manager the
+  # wrapper places on the runtime PATH.
+  passthru = {
+    nodejs = nodejs_24;
+    pnpm = pnpm_11;
+  };
+
   nativeInstallCheckInputs = [ versionCheckHook ];
   doInstallCheck = true;
 

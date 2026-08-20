@@ -34,62 +34,31 @@
 
       mkPackage = system: (mkPkgs system).callPackage ./packages/deepseek-harness/package.nix { };
 
-      # A dependency fixture in the module's Node package output contract
-      # (${pkg}/lib/node_modules/<name>/). A plain derivation keeps the test
-      # offline: buildNpmPackage with zero dependencies hits nixpkgs 26.11's
-      # npmInstallHook `find node_modules` edge, and the real buildNpmPackage
-      # layout is already exercised by the deepseek-harness package itself.
-      mkFixtureDep =
-        system:
-        (mkPkgs system).runCommand "dsh-context-1.0.0" { } ''
-          mkdir -p "$out/lib/node_modules/dsh-context"
-          cp ${./tests/fixtures/deps/dsh-context/package.json} "$out/lib/node_modules/dsh-context/package.json"
-          cp ${./tests/fixtures/deps/dsh-context/cordis.patch.yml} "$out/lib/node_modules/dsh-context/cordis.patch.yml"
-        '';
+      # The fixed-output dependency-closure hash of the fixture profile
+      # (tests/home-manager.nix), per build system.
+      profileHashes = import ./tests/profile-hashes.nix;
 
-      # Render this module's options as Markdown (docs/options.md) without
-      # importing the whole home-manager module set: a plain evalModules plus
-      # small stubs for the home-manager options the module consumes.
+      # Render a module's options as Markdown for docs/options.md without
+      # importing the whole module set: a plain evalModules plus small stubs
+      # for the options the module consumes.
       mkOptionsDoc =
-        system:
+        {
+          system,
+          modulePath,
+          sectionName,
+          stubOptions,
+          stubConfig,
+        }:
         let
           pkgs = mkPkgs system;
-
-          hmContextStub = {
-            options = {
-              home.homeDirectory = lib.mkOption { type = lib.types.str; };
-              home.file = lib.mkOption {
-                type = lib.types.attrsOf lib.types.anything;
-                default = { };
-              };
-              home.packages = lib.mkOption {
-                type = lib.types.listOf lib.types.package;
-                default = [ ];
-              };
-              home.sessionVariables = lib.mkOption {
-                type = lib.types.attrsOf lib.types.str;
-                default = { };
-              };
-              assertions = lib.mkOption {
-                type = lib.types.listOf lib.types.unspecified;
-                default = [ ];
-              };
-            };
-            config = {
-              home.homeDirectory = "/tmp/dsh-docs-home";
-              home.file = { };
-              home.packages = [ ];
-              home.sessionVariables = { };
-              assertions = [ ];
-            };
-          };
-
           optionsEval = lib.evalModules {
             specialArgs = { inherit pkgs; };
             modules = [
-              # A path module keeps its declaration site, unlike a lambda.
-              ./modules/home-manager.nix
-              hmContextStub
+              modulePath
+              {
+                options = stubOptions;
+                config = stubConfig;
+              }
             ];
           };
         in
@@ -102,40 +71,118 @@
             opt
             // {
               declarations = map (_: {
-                name = "modules/home-manager.nix";
-                url = "https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix";
+                name = sectionName;
+                url = "https://github.com/tsx8/dsh-nix/blob/main/${sectionName}";
               }) opt.declarations;
             };
         }).optionsCommonMark;
+
+      homeManagerStub = {
+        options = {
+          home.homeDirectory = lib.mkOption { type = lib.types.str; };
+          home.file = lib.mkOption {
+            type = lib.types.attrsOf lib.types.anything;
+            default = { };
+          };
+          home.packages = lib.mkOption {
+            type = lib.types.listOf lib.types.package;
+            default = [ ];
+          };
+          home.sessionVariables = lib.mkOption {
+            type = lib.types.attrsOf lib.types.str;
+            default = { };
+          };
+          assertions = lib.mkOption {
+            type = lib.types.listOf lib.types.unspecified;
+            default = [ ];
+          };
+        };
+        config = {
+          home.homeDirectory = "/tmp/dsh-docs-home";
+          home.file = { };
+          home.packages = [ ];
+          home.sessionVariables = { };
+          assertions = [ ];
+        };
+      };
+
+      nixosStub = {
+        options = {
+          environment.systemPackages = lib.mkOption {
+            type = lib.types.listOf lib.types.package;
+            default = [ ];
+          };
+        };
+        config = {
+          environment.systemPackages = [ ];
+        };
+      };
+
+      mkHomeManagerOptionsDoc =
+        system:
+        mkOptionsDoc {
+          inherit system;
+          modulePath = ./modules/home-manager.nix;
+          sectionName = "modules/home-manager.nix";
+          stubOptions = homeManagerStub.options;
+          stubConfig = homeManagerStub.config;
+        };
+
+      mkNixosOptionsDoc =
+        system:
+        mkOptionsDoc {
+          inherit system;
+          modulePath = ./modules/nixos.nix;
+          sectionName = "modules/nixos.nix";
+          stubOptions = nixosStub.options;
+          stubConfig = nixosStub.config;
+        };
 
       mkDocs =
         system:
         let
           pkgs = mkPkgs system;
-          optionsMd = mkOptionsDoc system;
+          hmOptionsMd = mkHomeManagerOptionsDoc system;
+          nixosOptionsMd = mkNixosOptionsDoc system;
         in
-        pkgs.runCommand "dsh-nix-docs" { inherit optionsMd; } ''
-          mkdir -p "$out"
-          { echo "# DeepSeek Harness Home Manager options"
-            echo
-            echo "Auto-generated from the option declarations in \`modules/home-manager.nix\`."
-            echo "CI keeps this file up to date on every push."
-            echo "Regenerate locally with: \`nix build .#docs -o docs-build && cp docs-build/options.md docs/options.md\`."
-            echo
-            cat "$optionsMd"
-          } > "$out/options.md"
-        '';
+        pkgs.runCommand "dsh-nix-docs"
+          {
+            inherit hmOptionsMd nixosOptionsMd;
+          }
+          ''
+            mkdir -p "$out"
+            {
+              echo "# DeepSeek Harness options"
+              echo
+              echo "Auto-generated from the option declarations in \`modules/home-manager.nix\` and \`modules/nixos.nix\`."
+              echo "CI keeps this file up to date on every push."
+              echo "Regenerate locally with: \`nix build .#docs -o docs-build && cp docs-build/options.md docs/options.md\`."
+              echo
+              echo "## Home Manager"
+              echo
+              cat "$hmOptionsMd"
+              echo
+              echo "## NixOS"
+              echo
+              cat "$nixosOptionsMd"
+            } > "$out/options.md"
+          '';
 
       mkChecks =
         system:
         let
           pkgs = mkPkgs system;
           deepseek-harness = mkPackage system;
-          fixtureDep = mkFixtureDep system;
+          profileHash = profileHashes.${system};
+          isLinux = lib.hasSuffix "linux" system;
+
+          # Standalone Home Manager configuration: HM installs DSH itself
+          # (same-repo package), so `finalPackage` must equal `package`.
           homeConfiguration = home-manager.lib.homeManagerConfiguration {
             inherit pkgs;
             extraSpecialArgs = {
-              inherit fixtureDep;
+              hmPackage = deepseek-harness;
+              inherit profileHash;
               yamlTag = self.lib.yamlTag;
             };
             modules = [
@@ -143,8 +190,10 @@
               ./tests/home-manager.nix
             ];
           };
+
           homeManagerCheck =
-            assert homeConfiguration.config.programs.deepseek-harness.package == null;
+            assert homeConfiguration.config.programs.deepseek-harness.package == deepseek-harness;
+            assert homeConfiguration.config.programs.deepseek-harness.finalPackage == deepseek-harness;
             assert
               homeConfiguration.config.home.sessionVariables.DSH_HOME == "/tmp/dsh-test/.local/share/dsh-fixture";
             assert lib.all (item: item.assertion) homeConfiguration.config.assertions;
@@ -173,19 +222,40 @@
                 jq -e '
                   .name == "dsh-profile-fixture"
                   and .private == true
-                  and .dependencies == {"dsh-context": "*"}
-                  and .dsh.profile.bundles == ["@deepseek-ai/dsh-base", "dsh-context"]
+                  and .dependencies == {"dsh-llm-codex": "0.1.2"}
+                  and .dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-llm-codex"]
                 ' "$manifest"
-                grep -Fx '    model: fixture-model' "$files/profiles/fixture/cordis.patch.yml"
-                test "$(cat "$files/profiles/bundle-only/cordis.patch.yml")" = '[]'
 
-                test -f "$files/profiles/fixture/node_modules/dsh-context/package.json"
+                # The canonical pnpm workspace generated by DSH's initProfile.
+                grep -Fx 'nodeLinker: hoisted' "$files/profiles/fixture/pnpm-workspace.yaml"
+                grep -Fx 'autoInstallPeers: false' "$files/profiles/fixture/pnpm-workspace.yaml"
+
+                # The profile node_modules is one whole directory symlink into
+                # the runtime store (never recursive per-file links).
+                test -L "$files/profiles/fixture/node_modules"
+                test -d "$files/profiles/fixture/node_modules"
+                test -f "$files/profiles/fixture/node_modules/dsh-llm-codex/lib/index.js"
+
+                # The profile patch layer is generated independently of the
+                # dependency runtime.
+                grep -Fx '    model: fixture-model' "$files/profiles/fixture/cordis.patch.yml"
+
+                # The profile root config is DSH-owned: Home Manager never
+                # deploys it, and the runtime derivation removed the copy DSH
+                # wrote during the build-time dump.
+                test ! -e "$files/profiles/fixture/cordis.yml"
+
+                # An installation-owned-only profile has no node_modules.
+                test -f "$files/profiles/bundle-only/package.json"
+                test -f "$files/profiles/bundle-only/pnpm-workspace.yaml"
+                test ! -e "$files/profiles/bundle-only/node_modules"
 
                 grep -Fx -- '- disabled: true' "$files/cordis.patch.yml"
                 grep -Fx '  id: hmr' "$files/cordis.patch.yml"
 
                 touch "$out"
               '';
+
           homeManagerRuntimeCheck =
             pkgs.runCommand "deepseek-harness-home-manager-runtime-check"
               {
@@ -210,19 +280,141 @@
                 # activation creates writable directories instead.
                 find "$HOME" -type d -exec chmod u+w {} +
 
-                # The module links store content read-only; DSH itself writes
-                # the profile root config on every boot.
                 test -L "$DSH_HOME/AGENTS.md"
 
-                dsh --profile fixture --dump-config > "$TMPDIR/dsh-config.yml"
+                # The profile's node_modules is a single symlink whose
+                # realpath sits inside the runtime derivation, next to the
+                # DSH-generated host fallback.
+                test -L "$DSH_HOME/profiles/fixture/node_modules"
+                runtime="$(realpath "$DSH_HOME/profiles/fixture/node_modules")"
+                test -d "$runtime/../node_modules"
+
+                # Boot the real profile, wait for plugin module loading (the
+                # web app announces its URL only after the tree settles),
+                # keep it alive, then SIGTERM it.
+                "${deepseek-harness}/bin/dsh" --profile fixture --port 0 > "$TMPDIR/dsh-boot.log" 2>&1 &
+                bootPid=$!
+
+                url=
+                attempt=0
+                while [ "$attempt" -lt 200 ]; do
+                  url="$(sed -n 's|^dsh web: \(http://127\.0\.0\.1:[0-9][0-9]*\)$|\1|p' "$TMPDIR/dsh-boot.log" | head -n 1)"
+                  if [ -n "$url" ]; then
+                    break
+                  fi
+                  if ! kill -0 "$bootPid" 2>/dev/null; then
+                    cat "$TMPDIR/dsh-boot.log" >&2
+                    exit 1
+                  fi
+                  sleep 0.1
+                  attempt=$((attempt + 1))
+                done
+
+                if [ -z "$url" ]; then
+                  cat "$TMPDIR/dsh-boot.log" >&2
+                  echo "dsh did not finish plugin module loading within 20 seconds" >&2
+                  exit 1
+                fi
+
+                sleep 1
+                if ! kill -0 "$bootPid" 2>/dev/null; then
+                  cat "$TMPDIR/dsh-boot.log" >&2
+                  exit 1
+                fi
+
+                # The profile root config stays a DSH-owned, writable file in
+                # the user's home (rewritten on every boot).
                 test -f "$DSH_HOME/profiles/fixture/cordis.yml"
-                grep -F 'fixture-model' "$TMPDIR/dsh-config.yml"
 
-                # This profile's patch is empty, so the only source of the
-                # model is the fixture dependency's own bundle patch.
-                dsh --profile bundle-only --dump-config > "$TMPDIR/dsh-bundle-config.yml"
-                grep -F 'fixture-bundle-model' "$TMPDIR/dsh-bundle-config.yml"
+                # Host peer resolution from the out-of-tree plugin's real
+                # location: the fallback must hand out the DSH installation's
+                # own copy, and the plugin's own dependencies must resolve
+                # inside the profile runtime.
+                ${deepseek-harness.passthru.nodejs}/bin/node -e '
+                  const { createRequire } = require("node:module");
+                  const { realpathSync } = require("node:fs");
+                  const runtime = realpathSync(process.env.DSH_HOME + "/profiles/fixture/node_modules");
+                  const req = createRequire(runtime + "/dsh-llm-codex/lib/index.js");
+                  const host = req.resolve("@deepseek-ai/dsh-home-paths");
+                  if (!host.startsWith("${deepseek-harness}")) {
+                    console.error("host package resolved outside the DSH installation: " + host);
+                    process.exit(1);
+                  }
+                  const own = req.resolve("@deepseek-ai/dsh-llm");
+                  if (!own.startsWith(runtime)) {
+                    console.error("plugin dependency resolved outside the profile runtime: " + own);
+                    process.exit(1);
+                  }
+                '
 
+                kill -TERM "$bootPid"
+                for _ in $(seq 1 50); do
+                  if ! kill -0 "$bootPid" 2>/dev/null; then
+                    break
+                  fi
+                  sleep 0.1
+                done
+                if kill -0 "$bootPid" 2>/dev/null; then
+                  echo "dsh did not exit after SIGTERM" >&2
+                  kill -9 "$bootPid"
+                  exit 1
+                fi
+
+                touch "$out"
+              '';
+
+          # NixOS module evaluation: enabling it installs its package into
+          # environment.systemPackages.
+          nixosModuleEval = lib.evalModules {
+            specialArgs = { inherit pkgs; };
+            modules = [
+              self.nixosModules.deepseek-harness
+              {
+                programs.deepseek-harness.enable = true;
+              }
+              {
+                options = nixosStub.options;
+                config = nixosStub.config;
+              }
+            ];
+          };
+
+          nixosModuleCheck =
+            assert lib.elem nixosModuleEval.config.programs.deepseek-harness.package
+              nixosModuleEval.config.environment.systemPackages;
+            pkgs.runCommand "deepseek-harness-nixos-module-check" { } "touch $out";
+
+          # NixOS -> Home Manager bridge: the NixOS module owns the package,
+          # HM sets package = null and must pick it up through finalPackage
+          # without installing DSH into home.packages.
+          bridgeHomeConfiguration = home-manager.lib.homeManagerConfiguration {
+            inherit pkgs;
+            extraSpecialArgs = {
+              osConfig = nixosModuleEval.config;
+              hmPackage = null;
+              inherit profileHash;
+              yamlTag = self.lib.yamlTag;
+            };
+            modules = [
+              self.homeModules.deepseek-harness
+              ./tests/home-manager.nix
+            ];
+          };
+
+          nixosHomeManagerBridgeCheck =
+            assert bridgeHomeConfiguration.config.programs.deepseek-harness.package == null;
+            assert
+              bridgeHomeConfiguration.config.programs.deepseek-harness.finalPackage
+              == nixosModuleEval.config.programs.deepseek-harness.package;
+            assert !lib.elem deepseek-harness bridgeHomeConfiguration.config.home.packages;
+            assert lib.all (item: item.assertion) bridgeHomeConfiguration.config.assertions;
+            pkgs.runCommand "deepseek-harness-nixos-bridge-check"
+              {
+                activationPackage = bridgeHomeConfiguration.activationPackage;
+              }
+              ''
+                test -x "$activationPackage/activate"
+                test -L "$activationPackage/home-files/.local/share/dsh-fixture/profiles/fixture/node_modules"
                 touch "$out"
               '';
         in
@@ -231,6 +423,10 @@
           home-manager = homeConfiguration.activationPackage;
           home-files = homeManagerCheck;
           home-manager-runtime = homeManagerRuntimeCheck;
+        }
+        // lib.optionalAttrs isLinux {
+          nixos-module = nixosModuleCheck;
+          nixos-home-manager-bridge = nixosHomeManagerBridgeCheck;
         };
     in
     {
@@ -251,6 +447,9 @@
       # Compatibility alias used by older Home Manager conventions.
       homeManagerModules.deepseek-harness = self.homeModules.deepseek-harness;
       homeManagerModules.default = self.homeModules.deepseek-harness;
+
+      nixosModules.deepseek-harness = import ./modules/nixos.nix;
+      nixosModules.default = self.nixosModules.deepseek-harness;
 
       lib = {
         # Marker constructor for `!!<tag>` YAML scalars in composition values

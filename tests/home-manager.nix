@@ -1,6 +1,7 @@
 {
-  fixtureDep,
   yamlTag,
+  profileHash,
+  hmPackage ? null,
   ...
 }:
 {
@@ -10,7 +11,10 @@
 
   programs.deepseek-harness = {
     enable = true;
-    package = null;
+    # The standalone check passes the same-repo package; the NixOS bridge
+    # check passes `null` so DSH comes from the NixOS module only.
+    package = hmPackage;
+
     dshHome = "/tmp/dsh-test/.local/share/dsh-fixture";
 
     agentsFile = ./fixtures/AGENTS.md;
@@ -55,10 +59,13 @@
     };
 
     profiles.fixture = {
-      dependencies."dsh-context" = fixtureDep;
+      dependencies = {
+        "dsh-llm-codex" = "0.1.2";
+      };
       bundles = [
         "@deepseek-ai/dsh-base"
-        "dsh-context"
+        "@deepseek-ai/dsh-web-app"
+        "dsh-llm-codex"
       ];
       cordisPatch = [
         {
@@ -69,13 +76,15 @@
           };
         }
       ];
+      pnpmDepsHash = profileHash;
     };
 
+    # An installation-owned-only profile: no dependency closure, no fetch,
+    # no profile-local node_modules.
     profiles.bundle-only = {
-      dependencies."dsh-context" = fixtureDep;
+      dependencies = { };
       bundles = [
         "@deepseek-ai/dsh-base"
-        "dsh-context"
       ];
       cordisPatch = [ ];
     };

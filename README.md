@@ -1,6 +1,6 @@
 # dsh-nix
 
-Nix flake with a package and a Home Manager module for
+Nix flake with a package, a Home Manager module, and a NixOS module for
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`).
 
 ## Installation
@@ -83,14 +83,16 @@ written as plain Nix values; DSH validates their schemas at runtime.
 
           profiles.web = {
             dependencies = {
-              "dsh-context" = dshContext; # Nix package exposing lib/node_modules/dsh-context
+              "dsh-llm-codex" = "0.1.2";
+              "dsh-context" = "0.13.0";
             };
             bundles = [
               "@deepseek-ai/dsh-base"
               "@deepseek-ai/dsh-web-app"
-              "dsh-context"
+              "dsh-llm-codex"
             ];
             cordisPatch = [ ];
+            pnpmDepsHash = "sha256-...";
           };
         };
       }
@@ -99,19 +101,100 @@ written as plain Nix values; DSH validates their schemas at runtime.
 }
 ```
 
-Ownership boundaries:
+### Profile dependencies
+
+`profiles.<name>.dependencies` maps npm package names to pnpm specs, written
+verbatim into the profile's `package.json.dependencies`. You never run pnpm,
+never maintain `pnpm-lock.yaml`, and never package plugins separately: the
+module resolves and fetches the whole dependency closure with
+`fetchPnpmDeps` (fetcherVersion 4, the exact pnpm the DSH runtime pairs
+with) and installs it offline into a sandboxed profile runtime. DSH's own
+in-box packages are never listed here — they resolve from the installation
+first.
+
+Adding or upgrading a dependency:
+
+1. Edit `dependencies` (and `bundles` if the plugin is a bundle).
+2. Delete `pnpmDepsHash` (or set it to `null`).
+3. Run your usual build (`nix build`, `home-manager switch`, ...).
+4. The fixed-output build fails and prints `got: sha256-...`.
+5. Copy that hash into `pnpmDepsHash`.
+6. Build again.
+
+Git-hosted plugins that need their `prepare` script to run on install:
+
+```nix
+profiles.web = {
+  dependencies."my-plugin" = "github:user/my-plugin";
+  pnpmWorkspace = {
+    packages = [ "." ];
+    nodeLinker = "hoisted";
+    autoInstallPeers = false;
+    allowBuilds."<package>" = true; # the exact key pnpm prints
+  };
+  pnpmDepsHash = "sha256-...";
+};
+```
+
+`pnpmWorkspace = null` (the default) keeps the canonical
+`pnpm-workspace.yaml` the current DSH generates; a non-`null` value fully
+replaces it. A profile with no dependencies needs no hash and has no
+profile-local `node_modules` — only `package.json` and
+`pnpm-workspace.yaml` are deployed.
+
+### Package ownership
+
+`programs.deepseek-harness.package` controls whether Home Manager installs
+DSH into `home.packages`. The effective runtime every declared profile is
+built against is `programs.deepseek-harness.finalPackage` (read-only):
+
+```text
+HM package > NixOS module package > null
+```
+
+Set `package = null` when DSH comes from the NixOS module or another package
+manager; `finalPackage` then picks up the system package automatically, so
+declared profiles still build against the running DSH. Declaring profiles
+without any known DSH runtime fails evaluation.
+
+### Ownership boundaries
 
 - Home Manager owns only what is declared: `AGENTS.md`,
   `cordis.patch.yml`, `skills/`, `.agent-presets/`, and declared
-  `profiles/` (including each profile's `node_modules`). These are
-  read-only store links.
+  `profiles/` (each profile's `package.json`, `pnpm-workspace.yaml`,
+  `node_modules`, and `cordis.patch.yml`). These are read-only store links;
+  each profile's `node_modules` is one whole directory symlink into the
+  profile runtime, whose parent `profiles/` directory holds the DSH host
+  fallback the runtime was built with.
 - DSH owns `settings.yaml`, `.credentials.yaml`, `.env`, the per-profile
   `cordis.yml` root config (rewritten on every boot), and the shared
-  `$DSH_HOME/profiles/node_modules` fallback. Manage these outside this
-  module if needed (e.g. with SOPS); `.credentials.yaml` must stay `0600`.
-- Do not run `dsh plugin` on a declared profile: pnpm writes through the
-  read-only links and creates a second source of truth. Undeclared
+  `$DSH_HOME/profiles/node_modules` fallback it heals at boot. Manage these
+  outside this module if needed (e.g. with SOPS); `.credentials.yaml` must
+  stay `0600`.
+- Do not run `dsh plugin` on a declared profile: pnpm would write through
+  the read-only links and create a second source of truth. Undeclared
   profiles keep DSH's native pnpm-backed management.
+
+## NixOS
+
+```nix
+{
+  nixosConfigurations.example = nixpkgs.lib.nixosSystem {
+    modules = [
+      dsh-nix.nixosModules.default
+      {
+        programs.deepseek-harness.enable = true;
+      }
+    ];
+  };
+}
+```
+
+The NixOS module only installs `programs.deepseek-harness.package` into
+`environment.systemPackages`. All user configuration stays under
+`$DSH_HOME` and is managed by the Home Manager module, which resolves this
+package through its read-only `finalPackage` when its own `package` is
+`null`.
 
 All module options are documented in [docs/options.md](docs/options.md)
 (auto-generated from the option declarations).

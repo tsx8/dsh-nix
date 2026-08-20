@@ -4,8 +4,15 @@
 # ownership boundaries under `$DSH_HOME`. YAML content is always a plain
 # Nix value; the Cordis/DSH schemas are validated by DSH itself at runtime.
 # The module only enforces invariants it actually owns: path safety, name
-# formats, file conflicts, and the Node package output contract of profile
-# dependencies.
+# formats, file conflicts, and the profile dependency contract.
+#
+# A declared profile is built by the internal `mkProfileRuntime` builder
+# (`lib/profile-runtime.nix`): DSH's own `initProfile` produces the canonical
+# manifest and pnpm workspace, `fetchPnpmDeps` (fetcherVersion 4) resolves and
+# fetches the dependency closure, and the runtime derivation's
+# `--dump-default-config` run makes DSH itself generate the shared
+# `$DSH_HOME/profiles/node_modules` host fallback. The user never runs pnpm,
+# never maintains `pnpm-lock.yaml`, and never packages plugins separately.
 #
 # DSH-owned, never managed here: `settings.yaml`, `.credentials.yaml`,
 # `.env`, the profile root `cordis.yml` (rewritten by DSH on every boot),
@@ -17,6 +24,7 @@
   config,
   lib,
   pkgs,
+  osConfig ? null,
   ...
 }:
 
@@ -25,19 +33,9 @@ let
   types = lib.types;
   yamlType = (pkgs.formats.yaml { }).type;
   yamlLib = import ../lib/yaml.nix { inherit lib pkgs; };
+  profileRuntimeLib = import ../lib/profile-runtime.nix { inherit lib pkgs; };
 
   defaultPackage = pkgs.callPackage ../packages/deepseek-harness/package.nix { };
-  shippedPresetIds = [
-    "standard"
-    "code"
-    "minimal"
-    "cordis"
-  ];
-  legacyHeadlessBundles = [
-    "@deepseek-ai/dsh-base"
-    "@deepseek-ai/dsh-web-app"
-    "@deepseek-ai/dsh-headless"
-  ];
 
   # npm package-name syntax (scoped or unscoped), matching npm's own rules.
   npmNamePattern = "^(@[a-z0-9~*-][a-z0-9*._~-]*/)?[a-z0-9~*-][a-z0-9*._~-]*$";
@@ -90,32 +88,51 @@ let
     && !lib.hasInfix "/" name
     && !lib.hasInfix "\\" name;
 
-  profileFiles = name: profile: {
-    "${dshHomeRelative}/profiles/${name}/package.json".text = "${
-      builtins.toJSON {
-        name = "dsh-profile-${name}";
-        private = true;
-        dependencies = lib.mapAttrs (_: _: "*") profile.dependencies;
-        dsh = {
-          profile = {
-            bundles = profile.bundles;
-          };
-        };
-      }
-    }\n";
+  # The read-only package resolution: the HM `package` option wins, then the
+  # NixOS module's package when that module is enabled, then `null`.
+  resolvedPackage =
+    if cfg.package != null then
+      cfg.package
+    else if
+      osConfig != null && lib.attrByPath [ "programs" "deepseek-harness" "enable" ] false osConfig
+    then
+      osConfig.programs.deepseek-harness.package
+    else
+      null;
 
-    "${dshHomeRelative}/profiles/${name}/cordis.patch.yml".source =
-      yamlLib.generate "cordis.patch.yml" profile.cordisPatch;
-  };
-
-  profileDependencyFiles =
+  # One `home.file` entry group per declared profile. The profile runtime is
+  # one derivation with DSH's native layout; the profile directory in
+  # `$DSH_HOME` holds read-only store links. `node_modules` must stay a
+  # single directory symlink (never `recursive = true`) so Node's realpath
+  # walk lands inside the runtime derivation, whose parent `profiles/`
+  # directory is exactly where DSH's host fallback lives.
+  profileFiles =
     name: profile:
-    lib.concatMapAttrs (depName: dep: {
-      "${dshHomeRelative}/profiles/${name}/node_modules/${depName}" = {
-        source = "${dep}/lib/node_modules/${depName}";
-        recursive = true;
+    let
+      runtime = profileRuntimeLib.mkProfileRuntime {
+        inherit (profile)
+          dependencies
+          bundles
+          pnpmWorkspace
+          pnpmDepsHash
+          ;
+        inherit name;
+        dshPackage = resolvedPackage;
       };
-    }) profile.dependencies;
+      runtimeProfileDir = "${runtime}/profiles/${name}";
+    in
+    {
+      "${dshHomeRelative}/profiles/${name}/package.json".source = "${runtimeProfileDir}/package.json";
+
+      "${dshHomeRelative}/profiles/${name}/pnpm-workspace.yaml".source =
+        "${runtimeProfileDir}/pnpm-workspace.yaml";
+
+      "${dshHomeRelative}/profiles/${name}/cordis.patch.yml".source =
+        yamlLib.generate "cordis.patch.yml" profile.cordisPatch;
+    }
+    // lib.optionalAttrs (lib.attrNames profile.dependencies != [ ]) {
+      "${dshHomeRelative}/profiles/${name}/node_modules".source = "${runtimeProfileDir}/node_modules";
+    };
 in
 {
   options.programs.deepseek-harness = {
@@ -126,16 +143,29 @@ in
         nullable = true;
         default = null;
         extraDescription = ''
-          The default is the same-repo package built with this module's
-          `pkgs`. Set this to `null` when DSH is installed by NixOS or
-          another package manager. Configuration generation does not depend
-          on this package.
+          Set this to `null` when DSH is installed by NixOS or another
+          package manager. It only controls whether Home Manager installs
+          DSH into `home.packages`; the effective runtime is always
+          {option}`programs.deepseek-harness.finalPackage`.
         '';
       })
       // {
         default = defaultPackage;
         defaultText = lib.literalExpression "pkgs.callPackage ../packages/deepseek-harness/package.nix { }";
       };
+
+    finalPackage = lib.mkOption {
+      type = types.nullOr types.package;
+      readOnly = true;
+      description = ''
+        The DSH package declared profiles are built against, resolved with
+        fixed precedence: the {option}`programs.deepseek-harness.package`
+        option, then the package of an enabled NixOS module
+        `programs.deepseek-harness` (when this Home Manager configuration is
+        evaluated as a NixOS module), then `null`. `null` means no DSH
+        runtime is known; declaring profiles then fails evaluation.
+      '';
+    };
 
     dshHome = lib.mkOption {
       type = types.str;
@@ -248,8 +278,8 @@ in
       '';
       description = ''
         Explicit user presets under `$DSH_HOME/.agent-presets`. Preset IDs
-        must match `^[a-z0-9][a-z0-9-]*$` and must not reuse a shipped
-        preset ID (DSH silently shadows such presets with its own).
+        must match `^[a-z0-9][a-z0-9-]*$`. A preset whose ID collides with a
+        shipped preset is shadowed by DSH's own root precedence.
       '';
     };
 
@@ -258,24 +288,23 @@ in
         types.submodule {
           options = {
             dependencies = lib.mkOption {
-              type = types.attrsOf types.package;
+              type = types.attrsOf (types.addCheck types.str (spec: spec != ""));
               default = { };
               example = lib.literalExpression ''
                 {
-                  "dsh-context" = dshContext;
-                  "@chaoset/sandbox-extra-roots" = sandboxExtraRoots;
+                  "dsh-context" = "0.13.0";
+                  "dsh-llm-codex" = "0.1.2";
                 }
               '';
               description = ''
-                External Node packages of this profile, keyed by npm
-                package name. Each package must expose
-                `''${pkg}/lib/node_modules/<name>/` (the `buildNpmPackage`
-                layout); it is linked into the profile's `node_modules` as
-                a read-only store tree. Build details (lockfiles, fetchers,
-                build scripts) belong to the package derivation, not to
-                this module. In-box bundle names always resolve from the
-                DSH installation first, so a dependency whose name collides
-                with an installed package is shadowed for bundle resolution.
+                The profile's external Node packages, keyed by npm package
+                name, with the pnpm spec written verbatim into
+                `package.json.dependencies` (e.g. `"^1.2.0"`,
+                `"workspace:*"`, `"github:user/repo"`). The dependency
+                closure is resolved and fetched by `fetchPnpmDeps`; the hash
+                goes in {option}`programs.deepseek-harness.profiles.<name>.pnpmDepsHash`.
+                DSH's in-box packages are never needed here: they resolve
+                from the installation first.
               '';
             };
 
@@ -290,7 +319,42 @@ in
               description = ''
                 The profile-local `cordis.patch.yml` layer, applied after
                 every bundle layer and before the global
-                {option}`programs.deepseek-harness.cordisPatch`.
+                {option}`programs.deepseek-harness.cordisPatch`. Changing
+                this layer never rebuilds the profile's dependency runtime.
+              '';
+            };
+
+            pnpmWorkspace = lib.mkOption {
+              type = types.nullOr yamlType;
+              default = null;
+              example = lib.literalExpression ''
+                {
+                  packages = [ "." ];
+                  nodeLinker = "hoisted";
+                  autoInstallPeers = false;
+                  allowBuilds."<package>" = true;
+                }
+              '';
+              description = ''
+                The profile's `pnpm-workspace.yaml`. `null` keeps the
+                canonical workspace the current DSH generates on profile
+                initialization. A non-`null` value completely replaces it —
+                e.g. to allow a git-hosted plugin's `prepare` script via
+                `allowBuilds`.
+              '';
+            };
+
+            pnpmDepsHash = lib.mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              example = lib.literalExpression ''"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="'';
+              description = ''
+                The fixed-output hash of the profile's dependency closure
+                (resolved lockfile + fetched pnpm store). Must be `null`
+                when {option}`programs.deepseek-harness.profiles.<name>.dependencies`
+                is empty. When it is `null` with dependencies, the build
+                fails once with the real `got:` hash — copy it back here.
+                See the README for the exact workflow.
               '';
             };
           };
@@ -301,12 +365,12 @@ in
         {
           web = {
             dependencies = {
-              "dsh-context" = dshContext;
+              "dsh-llm-codex" = "0.1.2";
             };
             bundles = [
               "@deepseek-ai/dsh-base"
               "@deepseek-ai/dsh-web-app"
-              "dsh-context"
+              "dsh-llm-codex"
             ];
             cordisPatch = [
               {
@@ -314,19 +378,25 @@ in
                 config.foo = "bar";
               }
             ];
+            pnpmDepsHash = "sha256-...";
           };
         }
       '';
       description = ''
         Explicit Home Manager-managed profiles under `$DSH_HOME/profiles`.
         A declared profile is fully owned by Home Manager (`package.json`,
-        `cordis.patch.yml`, `node_modules`); do not run `dsh plugin` on it.
-        Undeclared profiles keep DSH's native pnpm-backed management.
+        `pnpm-workspace.yaml`, `cordis.patch.yml`, `node_modules`); do not
+        run `dsh plugin` on it. Undeclared profiles keep DSH's native
+        pnpm-backed management.
       '';
     };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = {
+    # The effective runtime, resolved independently of `enable` so read-only
+    # consumers always get an answer.
+    programs.deepseek-harness.finalPackage = resolvedPackage;
+
     assertions = [
       {
         assertion = dshHomeValid;
@@ -348,8 +418,8 @@ in
       }
     ]
     ++ lib.mapAttrsToList (id: _: {
-      assertion = builtins.match "^[a-z0-9][a-z0-9-]*$" id != null && !lib.elem id shippedPresetIds;
-      message = "programs.deepseek-harness.agentPresets.${id}: preset IDs must match ^[a-z0-9][a-z0-9-]*$ and must not reuse a shipped preset ID (DSH would silently shadow it).";
+      assertion = builtins.match "^[a-z0-9][a-z0-9-]*$" id != null;
+      message = "programs.deepseek-harness.agentPresets.${id}: preset IDs must match ^[a-z0-9][a-z0-9-]*$.";
     }) cfg.agentPresets
     ++ lib.concatMap (
       id:
@@ -393,15 +463,33 @@ in
       );
       message = "programs.deepseek-harness.profiles.${name}.dependencies: keys must be valid npm package names.";
     }) cfg.profiles
-    ++ lib.mapAttrsToList (name: profile: {
-      assertion = name != "headless" || profile.bundles != legacyHeadlessBundles;
-      message = "programs.deepseek-harness.profiles.headless cannot use the legacy installation-owned headless bundle tuple because DSH rewrites it in place at boot, which would write through the read-only store link.";
-    }) cfg.profiles;
+    ++ [
+      {
+        assertion = profileNames == [ ] || resolvedPackage != null;
+        message = "programs.deepseek-harness.profiles requires an explicit DSH runtime: set programs.deepseek-harness.package, or enable the NixOS module programs.deepseek-harness (its package is then picked up automatically).";
+      }
+      {
+        assertion =
+          profileNames == [ ]
+          || resolvedPackage == null
+          || (resolvedPackage.passthru ? nodejs && resolvedPackage.passthru ? pnpm);
+        message = "programs.deepseek-harness.profiles requires a DSH package exposing passthru.nodejs and passthru.pnpm (the Node/pnpm toolchain the profile dependency graph is built with).";
+      }
+    ]
+    ++ lib.concatMap (name: [
+      {
+        assertion =
+          !(lib.attrNames cfg.profiles.${name}.dependencies == [ ])
+          || cfg.profiles.${name}.pnpmDepsHash == null;
+        message = "programs.deepseek-harness.profiles.${name}.pnpmDepsHash must be null when dependencies is empty (there is no dependency closure to hash).";
+      }
+    ]) (lib.attrNames cfg.profiles);
 
     home.sessionVariables.DSH_HOME = cfg.dshHome;
-    home.packages = lib.optional (cfg.package != null) cfg.package;
 
-    home.file =
+    home.packages = lib.mkIf cfg.enable (lib.optional (cfg.package != null) cfg.package);
+
+    home.file = lib.mkIf cfg.enable (
       (lib.optionalAttrs (cfg.agentsFile != null) {
         "${dshHomeRelative}/AGENTS.md".source = cfg.agentsFile;
       })
@@ -439,8 +527,7 @@ in
           };
         }) preset.files)
       ) cfg.agentPresets)
-      // (lib.concatMapAttrs (
-        name: profile: profileFiles name profile // profileDependencyFiles name profile
-      ) cfg.profiles);
+      // (lib.concatMapAttrs profileFiles cfg.profiles)
+    );
   };
 }

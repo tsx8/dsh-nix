@@ -1,8 +1,10 @@
-# DeepSeek Harness Home Manager options
+# DeepSeek Harness options
 
-Auto-generated from the option declarations in `modules/home-manager.nix`.
+Auto-generated from the option declarations in `modules/home-manager.nix` and `modules/nixos.nix`.
 CI keeps this file up to date on every push.
 Regenerate locally with: `nix build .#docs -o docs-build && cp docs-build/options.md docs/options.md`.
+
+## Home Manager
 
 ## programs\.deepseek-harness\.enable
 
@@ -40,10 +42,10 @@ true
 
 
 
-The deepseek-harness package to use\. The default is the same-repo package built with this module’s
-` pkgs `\. Set this to ` null ` when DSH is installed by NixOS or
-another package manager\. Configuration generation does not depend
-on this package\.
+The deepseek-harness package to use\. Set this to ` null ` when DSH is installed by NixOS or another
+package manager\. It only controls whether Home Manager installs
+DSH into ` home.packages `; the effective runtime is always
+` programs.deepseek-harness.finalPackage `\.
 
 
 
@@ -66,8 +68,8 @@ pkgs.callPackage ../packages/deepseek-harness/package.nix { }
 ## programs\.deepseek-harness\.agentPresets
 
 Explicit user presets under ` $DSH_HOME/.agent-presets `\. Preset IDs
-must match ` ^[a-z0-9][a-z0-9-]*$ ` and must not reuse a shipped
-preset ID (DSH silently shadows such presets with its own)\.
+must match ` ^[a-z0-9][a-z0-9-]*$ `\. A preset whose ID collides with a
+shipped preset is shadowed by DSH’s own root precedence\.
 
 
 
@@ -287,14 +289,44 @@ config.home.homeDirectory + "/.dsh"
 
 
 
+## programs\.deepseek-harness\.finalPackage
+
+
+
+The DSH package declared profiles are built against, resolved with
+fixed precedence: the ` programs.deepseek-harness.package `
+option, then the package of an enabled NixOS module
+` programs.deepseek-harness ` (when this Home Manager configuration is
+evaluated as a NixOS module), then ` null `\. ` null ` means no DSH
+runtime is known; declaring profiles then fails evaluation\.
+
+
+
+*Type:*
+null or package *(read only)*
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
+
+
+
 ## programs\.deepseek-harness\.profiles
 
 
 
 Explicit Home Manager-managed profiles under ` $DSH_HOME/profiles `\.
 A declared profile is fully owned by Home Manager (` package.json `,
-` cordis.patch.yml `, ` node_modules `); do not run ` dsh plugin ` on it\.
-Undeclared profiles keep DSH’s native pnpm-backed management\.
+` pnpm-workspace.yaml `, ` cordis.patch.yml `, ` node_modules `); do not
+run ` dsh plugin ` on it\. Undeclared profiles keep DSH’s native
+pnpm-backed management\.
 
 
 
@@ -317,12 +349,12 @@ attribute set of (submodule)
 {
   web = {
     dependencies = {
-      "dsh-context" = dshContext;
+      "dsh-llm-codex" = "0.1.2";
     };
     bundles = [
       "@deepseek-ai/dsh-base"
       "@deepseek-ai/dsh-web-app"
-      "dsh-context"
+      "dsh-llm-codex"
     ];
     cordisPatch = [
       {
@@ -330,6 +362,7 @@ attribute set of (submodule)
         config.foo = "bar";
       }
     ];
+    pnpmDepsHash = "sha256-...";
   };
 }
 
@@ -370,7 +403,8 @@ list of string
 
 The profile-local ` cordis.patch.yml ` layer, applied after
 every bundle layer and before the global
-` programs.deepseek-harness.cordisPatch `\.
+` programs.deepseek-harness.cordisPatch `\. Changing
+this layer never rebuilds the profile’s dependency runtime\.
 
 
 
@@ -394,20 +428,19 @@ YAML 1\.1 value
 
 
 
-External Node packages of this profile, keyed by npm
-package name\. Each package must expose
-` ${pkg}/lib/node_modules/<name>/ ` (the ` buildNpmPackage `
-layout); it is linked into the profile’s ` node_modules ` as
-a read-only store tree\. Build details (lockfiles, fetchers,
-build scripts) belong to the package derivation, not to
-this module\. In-box bundle names always resolve from the
-DSH installation first, so a dependency whose name collides
-with an installed package is shadowed for bundle resolution\.
+The profile’s external Node packages, keyed by npm package
+name, with the pnpm spec written verbatim into
+` package.json.dependencies ` (e\.g\. ` "^1.2.0" `,
+` "workspace:*" `, ` "github:user/repo" `)\. The dependency
+closure is resolved and fetched by ` fetchPnpmDeps `; the hash
+goes in ` programs.deepseek-harness.profiles.<name>.pnpmDepsHash `\.
+DSH’s in-box packages are never needed here: they resolve
+from the installation first\.
 
 
 
 *Type:*
-attribute set of package
+attribute set of string
 
 
 
@@ -423,8 +456,87 @@ attribute set of package
 
 ```nix
 {
-  "dsh-context" = dshContext;
-  "@chaoset/sandbox-extra-roots" = sandboxExtraRoots;
+  "dsh-context" = "0.13.0";
+  "dsh-llm-codex" = "0.1.2";
+}
+
+```
+
+*Declared by:*
+ - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
+
+
+
+## programs\.deepseek-harness\.profiles\.\<name>\.pnpmDepsHash
+
+
+
+The fixed-output hash of the profile’s dependency closure
+(resolved lockfile + fetched pnpm store)\. Must be ` null `
+when ` programs.deepseek-harness.profiles.<name>.dependencies `
+is empty\. When it is ` null ` with dependencies, the build
+fails once with the real ` got: ` hash — copy it back here\.
+See the README for the exact workflow\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+```
+
+*Declared by:*
+ - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
+
+
+
+## programs\.deepseek-harness\.profiles\.\<name>\.pnpmWorkspace
+
+
+
+The profile’s ` pnpm-workspace.yaml `\. ` null ` keeps the
+canonical workspace the current DSH generates on profile
+initialization\. A non-` null ` value completely replaces it —
+e\.g\. to allow a git-hosted plugin’s ` prepare ` script via
+` allowBuilds `\.
+
+
+
+*Type:*
+null or YAML 1\.1 value
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+{
+  packages = [ "." ];
+  nodeLinker = "hoisted";
+  autoInstallPeers = false;
+  allowBuilds."<package>" = true;
 }
 
 ```
@@ -470,5 +582,63 @@ attribute set of absolute path
 
 *Declared by:*
  - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
+
+
+
+## NixOS
+
+## programs\.deepseek-harness\.enable
+
+Whether to enable DeepSeek Harness\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [modules/nixos\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/nixos.nix)
+
+
+
+## programs\.deepseek-harness\.package
+
+
+
+The DeepSeek Harness package installed into the system environment\.
+Home Manager’s ` programs.deepseek-harness.finalPackage ` resolves to
+this package when its own ` package ` is ` null `\.
+
+
+
+*Type:*
+package
+
+
+
+*Default:*
+
+```nix
+pkgs.callPackage ../packages/deepseek-harness/package.nix { }
+```
+
+*Declared by:*
+ - [modules/nixos\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/nixos.nix)
 
 
