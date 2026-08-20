@@ -9,16 +9,14 @@
 #    trigger (tracking pre-releases is a policy choice).
 #
 # 2. nixpkgs-adoption: detects whether the nixos-unstable branch this flake
-#    follows ships a `deepseek-harness` package. The authoritative check is a
+#    follows ships a `deepseek-harness` package. The check is a
 #    Nix evaluation of the attribute (no path/name guessing, no raw-file
 #    probes, no master-vs-pinned confusion): `nix eval` of
 #    legacyPackages.x86_64-linux.deepseek-harness.name succeeds exactly when
 #    `pkgs.deepseek-harness` resolves, i.e. when `nix flake update` would make
-#    the package usable. GitHub PR search is a cheap early signal for
-#    in-flight additions.
+#    the package usable.
 #
-# Every finding opens (or reuses) a `upstream`-labelled issue; the in-flight
-# heads-up issue is closed once adoption is real.
+# Every finding opens (or reuses) a `upstream`-labelled issue.
 
 name: Monitor upstream
 
@@ -115,19 +113,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Cheap early signal: open nixpkgs PRs adding the package.
-          prs_json="$(gh api 'search/issues?q=repo%3ANixOS%2Fnixpkgs+deepseek-harness+is%3Apr+is%3Aopen&per_page=10' --jq '.items[] | select(.title | startswith("deepseek-harness")) | "- [\(.title)](\(.html_url))"' 2>&1)" || {
-            echo "gh api search failed:" >&2
-            echo "$prs_json" >&2
-            exit 1
-          }
-          mapfile -t prs < <(printf '%s\n' "$prs_json" | sed '/^$/d')
-          if [ "${#prs[@]}" -gt 0 ]; then
-            printf 'Open nixpkgs PRs mentioning deepseek-harness:\n%s\n' "${prs[*]}" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No open nixpkgs PRs mentioning deepseek-harness" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
           # Authoritative check: evaluate the attribute on the unpinned
           # nixos-unstable branch we follow (that is the rev `nix flake
           # update` would move to). Any other eval failure is a workflow
@@ -147,16 +132,6 @@ jobs:
 
           if [ -z "$adopted" ]; then
             echo "nixos-unstable does not ship deepseek-harness (or dsh) yet" >> "$GITHUB_STEP_SUMMARY"
-            if [ "${#prs[@]}" -gt 0 ]; then
-              title="upstream: nixpkgs PR adding deepseek-harness (open)"
-              existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --label upstream --state open --json title --jq '.[].title' | grep -Fx "$title" || true)"
-              if [ -n "$existing" ]; then
-                echo "issue already open: $title"
-                exit 0
-              fi
-              body="$(printf 'Open PRs in NixOS/nixpkgs adding deepseek-harness:\n\n%s\n\nThese may be superseded; the authoritative adoption signal is the daily eval check.' "${prs[*]}")"
-              gh issue create --repo "$GITHUB_REPOSITORY" --label upstream --title "$title" --body "$body"
-            fi
             exit 0
           fi
 
@@ -169,9 +144,6 @@ jobs:
           body="$(cat <<EOF
           \`nixos-unstable\` now ships \`${adopted}\` (version \`${version}\`), nixpkgs rev \`${rev}\`.
 
-          Relevant open PRs:
-          ${prs[*]:-none}
-
           Before switching away from the local \`packages/deepseek-harness/package.nix\`:
           1. \`passthru.nodejs\` / \`passthru.pnpm\` contract: \`modules/home-manager.nix\` asserts both when profiles are declared, and \`lib/profile-runtime.nix\` builds the dependency graph with them. The upstream package may need a passthru addition.
           2. Platforms: the nixpkgs package may cover fewer systems than the local one (x86_64-linux, aarch64-linux, aarch64-darwin).
@@ -182,10 +154,4 @@ jobs:
             echo "issue already open: $title"
           else
             gh issue create --repo "$GITHUB_REPOSITORY" --label upstream --title "$title" --body "$body"
-          fi
-
-          # Adoption is real: close the earlier in-flight heads-up issue.
-          inflight="$(gh issue list --repo "$GITHUB_REPOSITORY" --label upstream --state open --json number,title --jq '.[] | select(.title | startswith("upstream: nixpkgs PR adding")) | .number' | head -n1 || true)"
-          if [ -n "$inflight" ]; then
-            gh issue close "$inflight" --repo "$GITHUB_REPOSITORY" --comment "nixos-unstable now ships deepseek-harness; superseded by the adoption issue."
           fi
