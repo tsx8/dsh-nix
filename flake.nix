@@ -308,7 +308,7 @@
                 # Boot the real profile, wait for plugin module loading (the
                 # web app announces its URL only after the tree settles),
                 # keep it alive, then SIGTERM it.
-                "${deepseek-harness}/bin/dsh" --profile fixture --port 0 > "$TMPDIR/dsh-boot.log" 2>&1 &
+                "${deepseek-harness}/bin/dsh" --profile fixture --port 0 --no-open > "$TMPDIR/dsh-boot.log" 2>&1 &
                 bootPid=$!
 
                 url=

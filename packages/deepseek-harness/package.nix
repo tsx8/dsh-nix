@@ -34,18 +34,18 @@ let
 in
 buildNpmPackage (finalAttrs: {
   pname = "deepseek-harness";
-  version = "0.1.0-rc.7";
+  version = "0.1.1-rc.1";
 
   __structuredAttrs = true;
 
   src = fetchurl {
     url = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-${finalAttrs.version}.tgz";
-    hash = "sha256-L48Ldj1hGsU296lBHuQ8CvwGfBuHMsMQLATb45i8rMU=";
+    hash = "sha256-xYweNYQZyJB8u2rbQwZcPB6CQEJImrCtkX6V4KBBgFY=";
   };
 
   nodejs = nodejs_24;
 
-  npmDepsHash = "sha256-Y+Y1f1V7+1sXkezKAeqEOW8GZeScERo/+gWXU4Qjqho=";
+  npmDepsHash = "sha256-UELAH0rWzUpFrZWbY1Y9XdBl4gjlg1gmxXLR2mWqSQ0=";
 
   # The npm tarball retains development-only workspace packages, which npm
   # would otherwise install because the tarball is the derivation's root.
@@ -133,7 +133,7 @@ buildNpmPackage (finalAttrs: {
     $out/bin/dsh plugin --profile nix-smoke --version | grep -Fx ${pnpm_11.version}
 
     webLog="$TMPDIR/dsh-web.log"
-    $out/bin/dsh web --port 0 >"$webLog" 2>&1 &
+    $out/bin/dsh web --port 0 --no-open >"$webLog" 2>&1 &
     webPid=$!
 
     stopWeb() {
