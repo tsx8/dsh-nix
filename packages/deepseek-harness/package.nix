@@ -34,18 +34,18 @@ let
 in
 buildNpmPackage (finalAttrs: {
   pname = "deepseek-harness";
-  version = "0.1.1-rc.1";
+  version = "0.1.1-rc.2";
 
   __structuredAttrs = true;
 
   src = fetchurl {
     url = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-${finalAttrs.version}.tgz";
-    hash = "sha256-xYweNYQZyJB8u2rbQwZcPB6CQEJImrCtkX6V4KBBgFY=";
+    hash = "sha256-R+wF9FraWrh3ea4YqQRWtev/VCHcD/XBeWd9ZeHBYFc=";
   };
 
   nodejs = nodejs_24;
 
-  npmDepsHash = "sha256-UELAH0rWzUpFrZWbY1Y9XdBl4gjlg1gmxXLR2mWqSQ0=";
+  npmDepsHash = "sha256-wtozzqw6GiiwDNXXHSZgLMt5qF1rvFKnwfUePi9T2JY=";
 
   # The npm tarball retains development-only workspace packages, which npm
   # would otherwise install because the tarball is the derivation's root.
