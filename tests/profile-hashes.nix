@@ -2,10 +2,10 @@
 # system and per profile:
 #
 #   fixture  dsh-llm-codex from Git (github:NOirBRight/dsh-llm-codex pinned to
-#            the v0.2.5 commit ac5866543ccd44c75a96ba779629ac7a47fc1f50), the
+#            the v0.3.10 commit 653c12002d4e5941a0b09e367697a3bf32de9412), the
 #            non-registry regression profile.
-#   registry dsh-llm-codex 0.1.2 from the npm registry, the registry-spec
-#            coverage profile.
+#   registry dsh-context 0.41.3 from the npm registry, the compatibility and
+#            registry-spec coverage profile.
 #
 # Each closure is resolved and fetched with `fetchPnpmDeps fetcherVersion = 4`
 # using the DSH-paired pnpm; the hash covers the resolved `pnpm-lock.yaml`
@@ -24,15 +24,15 @@
 # fixed-output build.
 {
   x86_64-linux = {
-    fixture = "sha256-TAQiJ4iDWSzPxdn2s2msReTsoXZO7y4xI/qTBSOwsp4=";
-    registry = "sha256-nHloXiNvKb1UjZ/lbqpIV8IIV7A3jjSeXDC7yqavKC0=";
+    fixture = "sha256-BmwsC0j+IMbiZF9cno9OOB1QABSTA5Z2r+RJIONzcnY=";
+    registry = "sha256-iUnVweb5bmDPX63uhAm9STQ97pNhPF9fXakoP41FEGU=";
   };
   aarch64-linux = {
-    fixture = "sha256-TAQiJ4iDWSzPxdn2s2msReTsoXZO7y4xI/qTBSOwsp4=";
-    registry = "sha256-nHloXiNvKb1UjZ/lbqpIV8IIV7A3jjSeXDC7yqavKC0=";
+    fixture = "sha256-BmwsC0j+IMbiZF9cno9OOB1QABSTA5Z2r+RJIONzcnY=";
+    registry = "sha256-iUnVweb5bmDPX63uhAm9STQ97pNhPF9fXakoP41FEGU=";
   };
   aarch64-darwin = {
-    fixture = "sha256-TAQiJ4iDWSzPxdn2s2msReTsoXZO7y4xI/qTBSOwsp4=";
-    registry = "sha256-nHloXiNvKb1UjZ/lbqpIV8IIV7A3jjSeXDC7yqavKC0=";
+    fixture = "sha256-BmwsC0j+IMbiZF9cno9OOB1QABSTA5Z2r+RJIONzcnY=";
+    registry = "sha256-iUnVweb5bmDPX63uhAm9STQ97pNhPF9fXakoP41FEGU=";
   };
 }

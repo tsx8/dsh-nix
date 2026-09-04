@@ -34,32 +34,25 @@ let
 in
 buildNpmPackage (finalAttrs: {
   pname = "deepseek-harness";
-  version = "0.1.1-rc.2";
+  version = "0.1.2-rc.1";
 
   __structuredAttrs = true;
 
   src = fetchurl {
     url = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-${finalAttrs.version}.tgz";
-    hash = "sha256-R+wF9FraWrh3ea4YqQRWtev/VCHcD/XBeWd9ZeHBYFc=";
+    hash = "sha256-yjcGaAU61tCsMl6RnvX2XeU94At7rXgAjm+0It/ONTA=";
   };
 
   nodejs = nodejs_24;
 
-  npmDepsHash = "sha256-wtozzqw6GiiwDNXXHSZgLMt5qF1rvFKnwfUePi9T2JY=";
+  npmDepsHash = "sha256-Pv9G7sZRtkeikH2X5x55I7DnvOx3qPmZVWNErQCh6tk=";
 
-  # The npm tarball retains development-only workspace packages, which npm
-  # would otherwise install because the tarball is the derivation's root.
   patches = [
     ./remove-dev-dependencies.patch
-    ./use-nix-bash.patch
   ];
 
   postPatch = ''
     cp ${./package-lock.json} package-lock.json
-
-    # NixOS does not provide the terminal backend's default /bin/bash.
-    substituteInPlace config/agent-presets/minimal/agent.cordis.yml \
-      --replace-fail "@bash@" "${lib.getExe bash}"
   '';
 
   npmInstallFlags = [ "--omit=dev" ];
@@ -75,6 +68,31 @@ buildNpmPackage (finalAttrs: {
   # platform's pty.node from them at runtime (its install script skips
   # node-gyp when a matching prebuild exists), so keep only that directory.
   postInstall = ''
+    # Since 0.1.2, shipped agent presets live in
+    # @deepseek-ai/dsh-agent-presets rather than the launcher tarball. NixOS
+    # does not provide the terminal backend's default /bin/bash, so patch the
+    # preset's bash backend after npm has installed the preset package.
+    export DSH_ROOT="$out/lib/node_modules/@deepseek-ai/dsh"
+    EXPECTED_BASH=${lib.escapeShellArg (lib.getExe bash)} ${nodejs_24}/bin/node -e '
+      const { readFileSync, writeFileSync } = require("node:fs");
+      const { dirname } = require("node:path");
+      const { createRequire } = require("node:module");
+      const requireFromDsh = createRequire(process.env.DSH_ROOT + "/package.json");
+      const presetFile = dirname(
+        requireFromDsh.resolve("@deepseek-ai/dsh-agent-presets/package.json")
+      ) + "/presets/minimal/agent.cordis.yml";
+      const lines = readFileSync(presetFile, "utf8").split("\n");
+      const rowIndex = lines.indexOf("    - id: terminal-bash");
+      const configIndex = lines.findIndex(
+        (line, index) => index > rowIndex && line === "      config:"
+      );
+      if (rowIndex < 0 || configIndex < 0 || lines[configIndex + 1] !== "        timeoutMs: 300000") {
+        throw new Error("terminal-bash preset block not found");
+      }
+      lines.splice(configIndex + 1, 0, "        shellPath: " + process.env.EXPECTED_BASH);
+      writeFileSync(presetFile, lines.join("\n"));
+    '
+
     # HMR needs Node's internal ESM loader, which its native fallback cannot
     # resolve with Node 24.
     rm $out/bin/dsh
@@ -145,7 +163,7 @@ buildNpmPackage (finalAttrs: {
     webUrl=
     attempt=0
     while [ "$attempt" -lt 200 ]; do
-      webUrl="$(sed -n 's|^dsh web: \(http://127\.0\.0\.1:[0-9][0-9]*\)$|\1|p' "$webLog" | head -n 1)"
+      webUrl="$(sed -n 's|^dsh web: \(http://127\.0\.0\.1:[0-9][0-9]*\).*|\1|p' "$webLog" | head -n 1)"
       if [ -n "$webUrl" ]; then
         break
       fi
@@ -176,8 +194,12 @@ buildNpmPackage (finalAttrs: {
       cd $out/lib/node_modules/@deepseek-ai/dsh
       EXPECTED_PTY_SHELL=${lib.getExe bash} ${nodejs_24}/bin/node -e '
         const { readFileSync } = require("node:fs");
+        const { dirname } = require("node:path");
+        const { createRequire } = require("node:module");
         const pty = require("node-pty");
-        const preset = readFileSync("config/agent-presets/minimal/agent.cordis.yml", "utf8");
+        const requireFromDsh = createRequire(process.cwd() + "/package.json");
+        const presetRoot = requireFromDsh.resolve("@deepseek-ai/dsh-agent-presets/package.json");
+        const preset = readFileSync(dirname(presetRoot) + "/presets/minimal/agent.cordis.yml", "utf8");
         const shell = /^\s+shellPath:\s+(.+)$/mu.exec(preset)?.[1];
         if (shell !== process.env.EXPECTED_PTY_SHELL) {
           console.error({ shell, expected: process.env.EXPECTED_PTY_SHELL });

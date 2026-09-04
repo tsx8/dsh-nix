@@ -91,6 +91,7 @@ written as plain Nix values; DSH validates their schemas at runtime.
               "@deepseek-ai/dsh-web-app"
               "dsh-llm-codex"
             ];
+            patchReload = "live";
             cordisPatch = [ ];
             pnpmDepsHash = "sha256-...";
           };
@@ -143,6 +144,12 @@ profiles.web = {
 
 Pin Git/URL dependencies to a commit or tag: an unpinned branch like `#main`
 resolves differently over time, breaking the fixed-output hash.
+
+`profiles.<name>.patchReload` writes DSH 0.1.2's
+`dsh.profile.patchReload` lifecycle. It defaults to `"startup"` only when the
+profile name and ordered bundle list exactly match a DSH shipped startup tuple;
+otherwise it defaults to `"live"`. `"live"` watches profile and global patch
+files while DSH runs; `"startup"` applies them only at boot.
 
 `pnpmWorkspace = null` (the default) keeps the canonical
 `pnpm-workspace.yaml` the current DSH generates; a non-`null` value fully

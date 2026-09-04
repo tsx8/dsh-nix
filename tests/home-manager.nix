@@ -61,13 +61,13 @@
 
     # The main regression profile: a real Git-hosted plugin (pinned commit)
     # exercising the non-registry dependency path through fetchPnpmDeps and
-    # the runtime builder. dsh-llm-codex v0.2.5 ships committed `lib/`
+    # the runtime builder. dsh-llm-codex v0.3.10 ships committed `lib/`
     # artifacts and has no install/prepare/postinstall scripts, so its
     # runtime needs no allowBuilds; the host-peer scenario is covered by the
     # runtime check.
     profiles.fixture = {
       dependencies = {
-        "dsh-llm-codex" = "github:NOirBRight/dsh-llm-codex#ac5866543ccd44c75a96ba779629ac7a47fc1f50";
+        "dsh-llm-codex" = "github:NOirBRight/dsh-llm-codex#653c12002d4e5941a0b09e367697a3bf32de9412";
       };
       bundles = [
         "@deepseek-ai/dsh-base"
@@ -86,15 +86,18 @@
       pnpmDepsHash = profileHash;
     };
 
-    # Registry-spec coverage: the same plugin fetched from the npm registry,
-    # proving the registry dependency path still works alongside the Git one.
+    # Registry-spec compatibility: dsh-context publishes an explicit DSH
+    # release-compatibility matrix and installs through the ordinary npm
+    # registry path. Its browser half exercises the web-app plugin injection
+    # surface, so the runtime check boots this profile too.
     profiles.registry = {
       dependencies = {
-        "dsh-llm-codex" = "0.1.2";
+        "dsh-context" = "0.41.3";
       };
       bundles = [
         "@deepseek-ai/dsh-base"
-        "dsh-llm-codex"
+        "@deepseek-ai/dsh-web-app"
+        "dsh-context"
       ];
       cordisPatch = [ ];
       pnpmDepsHash = registryHash;
@@ -106,6 +109,37 @@
       dependencies = { };
       bundles = [
         "@deepseek-ai/dsh-base"
+      ];
+      patchReload = "startup";
+      cordisPatch = [ ];
+    };
+
+    # Shipped profiles use their template lifecycle only for the exact shipped
+    # bundle tuple. These cover both sides of that rule without depending on
+    # DSH rewriting a Home Manager-owned manifest.
+    profiles.web = {
+      dependencies = { };
+      bundles = [
+        "@deepseek-ai/dsh-base"
+        "@deepseek-ai/dsh-web-app"
+      ];
+      cordisPatch = [ ];
+    };
+
+    profiles.headless = {
+      dependencies = { };
+      bundles = [
+        "@deepseek-ai/dsh-base"
+        "@deepseek-ai/dsh-headless"
+      ];
+      cordisPatch = [ ];
+    };
+
+    profiles.headless-custom = {
+      dependencies = { };
+      bundles = [
+        "@deepseek-ai/dsh-base"
+        "@deepseek-ai/dsh-headless"
       ];
       cordisPatch = [ ];
     };

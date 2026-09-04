@@ -10,7 +10,8 @@
 # (`lib/profile-runtime.nix`): DSH's own `initProfile` produces the canonical
 # manifest and pnpm workspace, `fetchPnpmDeps` (fetcherVersion 4) resolves and
 # fetches the dependency closure, and the runtime derivation's
-# `--dump-default-config` run makes DSH itself generate the shared
+# config dump validates manifest and bundle composition while an explicit
+# fallback projection creates DSH's shared
 # `$DSH_HOME/profiles/node_modules` host fallback. The user never runs pnpm,
 # never maintains `pnpm-lock.yaml`, and never packages plugins separately.
 #
@@ -88,6 +89,47 @@ let
     && !lib.hasInfix "/" name
     && !lib.hasInfix "\\" name;
 
+  # DSH applies a shipped `startup` default only when both the profile name and
+  # the exact shipped bundle tuple match; every other bundle list is a
+  # user-owned profile and retains DSH's `live` default.
+  shippedStartupBundleTuples = {
+    acp = [
+      [
+        "@deepseek-ai/dsh-base"
+        "@deepseek-ai/dsh-acp-app"
+      ]
+    ];
+    headless = [
+      [
+        "@deepseek-ai/dsh-base"
+        "@deepseek-ai/dsh-headless"
+      ]
+      [
+        "@deepseek-ai/dsh-base"
+        "@deepseek-ai/dsh-web-app"
+        "@deepseek-ai/dsh-headless"
+      ]
+    ];
+    sdk = [
+      [
+        "@deepseek-ai/dsh-base"
+        "@deepseek-ai/dsh-sdk-app"
+      ]
+    ];
+    "sdk-minimal" = [
+      [ "@deepseek-ai/dsh-sdk-minimal" ]
+    ];
+  };
+
+  profilePatchReloadDefault =
+    name: bundles:
+    if
+      lib.any (shippedBundles: bundles == shippedBundles) (shippedStartupBundleTuples.${name} or [ ])
+    then
+      "startup"
+    else
+      "live";
+
   # The read-only package resolution: the HM `package` option wins, then the
   # NixOS module's package when that module is enabled, then `null`.
   resolvedPackage =
@@ -113,6 +155,7 @@ let
         inherit (profile)
           dependencies
           bundles
+          patchReload
           pnpmWorkspace
           pnpmDepsHash
           ;
@@ -285,84 +328,106 @@ in
 
     profiles = lib.mkOption {
       type = types.attrsOf (
-        types.submodule {
-          options = {
-            dependencies = lib.mkOption {
-              type = types.attrsOf (types.addCheck types.str (spec: spec != ""));
-              default = { };
-              example = lib.literalExpression ''
-                {
-                  "dsh-context" = "0.13.0";
-                  "dsh-llm-codex" = "0.1.2";
-                }
-              '';
-              description = ''
-                The profile's external Node packages, keyed by npm package
-                name, with the pnpm spec written verbatim into
-                `package.json.dependencies` (e.g. `"^1.2.0"`,
-                `"workspace:*"`, `"github:user/repo"`). The dependency
-                closure is resolved and fetched by `fetchPnpmDeps`; the hash
-                goes in {option}`programs.deepseek-harness.profiles.<name>.pnpmDepsHash`.
-                DSH's in-box packages are never needed here: they resolve
-                from the installation first.
-              '';
-            };
+        types.submodule (
+          {
+            name,
+            config,
+            lib,
+            ...
+          }:
+          {
+            options = {
+              dependencies = lib.mkOption {
+                type = types.attrsOf (types.addCheck types.str (spec: spec != ""));
+                default = { };
+                example = lib.literalExpression ''
+                  {
+                    "dsh-context" = "0.13.0";
+                    "dsh-llm-codex" = "0.1.2";
+                  }
+                '';
+                description = ''
+                  The profile's external Node packages, keyed by npm package
+                  name, with the pnpm spec written verbatim into
+                  `package.json.dependencies` (e.g. `"^1.2.0"`,
+                  `"workspace:*"`, `"github:user/repo"`). The dependency
+                  closure is resolved and fetched by `fetchPnpmDeps`; the hash
+                  goes in {option}`programs.deepseek-harness.profiles.<name>.pnpmDepsHash`.
+                  DSH's in-box packages are never needed here: they resolve
+                  from the installation first.
+                '';
+              };
 
-            bundles = lib.mkOption {
-              type = types.listOf (types.addCheck types.str (bundle: bundle != ""));
-              description = "Ordered package names in `dsh.profile.bundles`.";
-            };
+              bundles = lib.mkOption {
+                type = types.listOf (types.addCheck types.str (bundle: bundle != ""));
+                description = "Ordered package names in `dsh.profile.bundles`.";
+              };
 
-            cordisPatch = lib.mkOption {
-              type = yamlType;
-              default = [ ];
-              description = ''
-                The profile-local `cordis.patch.yml` layer, applied after
-                every bundle layer and before the global
-                {option}`programs.deepseek-harness.cordisPatch`. Changing
-                this layer never rebuilds the profile's dependency runtime.
-              '';
-            };
+              patchReload = lib.mkOption {
+                type = types.enum [
+                  "live"
+                  "startup"
+                ];
+                default = profilePatchReloadDefault name config.bundles;
+                defaultText = ''"startup" only for an exact DSH shipped startup tuple; otherwise "live".'';
+                description = ''
+                  The `dsh.profile.patchReload` lifecycle. `live` watches the
+                  profile and global patch files while DSH runs; `startup`
+                  applies them only at boot.
+                '';
+              };
 
-            pnpmWorkspace = lib.mkOption {
-              type = types.nullOr yamlType;
-              default = null;
-              example = lib.literalExpression ''
-                {
-                  packages = [ "." ];
-                  nodeLinker = "hoisted";
-                  autoInstallPeers = false;
-                  allowBuilds."<package>" = true;
-                }
-              '';
-              description = ''
-                The profile's `pnpm-workspace.yaml`. `null` keeps the
-                canonical workspace the current DSH generates on profile
-                initialization. A non-`null` value completely replaces it —
-                e.g. `allowBuilds` controls which dependency build scripts
-                run during the profile build. Registry and prebuilt Git/URL
-                dependencies are fully supported; a Git-hosted dependency
-                whose distributable package must first be produced by a
-                source-only `prepare` step depends on pnpm/fetchPnpmDeps
-                support for that source form and is not guaranteed.
-              '';
-            };
+              cordisPatch = lib.mkOption {
+                type = yamlType;
+                default = [ ];
+                description = ''
+                  The profile-local `cordis.patch.yml` layer, applied after
+                  every bundle layer and before the global
+                  {option}`programs.deepseek-harness.cordisPatch`. Changing
+                  this layer never rebuilds the profile's dependency runtime.
+                '';
+              };
 
-            pnpmDepsHash = lib.mkOption {
-              type = types.nullOr types.str;
-              default = null;
-              example = lib.literalExpression ''"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="'';
-              description = ''
-                The fixed-output hash of the profile's dependency closure
-                (resolved lockfile + fetched pnpm store). Must be `null`
-                when {option}`programs.deepseek-harness.profiles.<name>.dependencies`
-                is empty. When it is `null` with dependencies, the build
-                fails once with the real `got:` hash — copy it back here.
-                See the README for the exact workflow.
-              '';
+              pnpmWorkspace = lib.mkOption {
+                type = types.nullOr yamlType;
+                default = null;
+                example = lib.literalExpression ''
+                  {
+                    packages = [ "." ];
+                    nodeLinker = "hoisted";
+                    autoInstallPeers = false;
+                    allowBuilds."<package>" = true;
+                  }
+                '';
+                description = ''
+                  The profile's `pnpm-workspace.yaml`. `null` keeps the
+                  canonical workspace the current DSH generates on profile
+                  initialization. A non-`null` value completely replaces it —
+                  e.g. `allowBuilds` controls which dependency build scripts
+                  run during the profile build. Registry and prebuilt Git/URL
+                  dependencies are fully supported; a Git-hosted dependency
+                  whose distributable package must first be produced by a
+                  source-only `prepare` step depends on pnpm/fetchPnpmDeps
+                  support for that source form and is not guaranteed.
+                '';
+              };
+
+              pnpmDepsHash = lib.mkOption {
+                type = types.nullOr types.str;
+                default = null;
+                example = lib.literalExpression ''"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="'';
+                description = ''
+                  The fixed-output hash of the profile's dependency closure
+                  (resolved lockfile + fetched pnpm store). Must be `null`
+                  when {option}`programs.deepseek-harness.profiles.<name>.dependencies`
+                  is empty. When it is `null` with dependencies, the build
+                  fails once with the real `got:` hash — copy it back here.
+                  See the README for the exact workflow.
+                '';
+              };
             };
-          };
-        }
+          }
+        )
       );
       default = { };
       example = lib.literalExpression ''

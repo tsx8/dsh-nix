@@ -467,6 +467,32 @@ attribute set of string
 
 
 
+## programs\.deepseek-harness\.profiles\.\<name>\.patchReload
+
+
+
+The ` dsh.profile.patchReload ` lifecycle\. ` live ` watches the
+profile and global patch files while DSH runs; ` startup `
+applies them only at boot\.
+
+
+
+*Type:*
+one of “live”, “startup”
+
+
+
+*Default:*
+
+```nix
+"\"startup\" only for an exact DSH shipped startup tuple; otherwise \"live\"."
+```
+
+*Declared by:*
+ - [modules/home-manager\.nix](https://github.com/tsx8/dsh-nix/blob/main/modules/home-manager.nix)
+
+
+
 ## programs\.deepseek-harness\.profiles\.\<name>\.pnpmDepsHash
 
 
