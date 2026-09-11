@@ -220,6 +220,48 @@
                 grep -Fx 'name: My Preset' "$files/.agent-presets/my-preset/preset.yml"
                 test -f "$files/.agent-presets/my-preset/skills/local-helper/SKILL.md"
 
+                # Parse the generated composition with DSH's own !!js-aware
+                # YAML schema, then validate the persona row with the version
+                # of dsh-persona shipped by the runtime under test.
+                dshRoot=${deepseek-harness}/lib/node_modules/@deepseek-ai/dsh
+                DSH_COMPOSITION="$files/.agent-presets/my-preset/agent.cordis.yml" DSH_ROOT="$dshRoot" \
+                  ${deepseek-harness.passthru.nodejs}/bin/node --input-type=module -e '
+                import { readFileSync } from "node:fs";
+                import { createRequire } from "node:module";
+
+                const compositionFile = process.env.DSH_COMPOSITION;
+                const dshRoot = process.env.DSH_ROOT;
+                const requireFromDsh = createRequire(dshRoot + "/package.json");
+                const { default: yaml } = await import(requireFromDsh.resolve("js-yaml"));
+                const { entryListSchema } = await import(
+                  requireFromDsh.resolve("@deepseek-ai/cordis-plugin-include")
+                );
+                const { Config } = await import(
+                  requireFromDsh.resolve("@deepseek-ai/dsh-persona")
+                );
+
+                const composition = yaml.load(readFileSync(compositionFile, "utf8"), {
+                  schema: entryListSchema,
+                });
+                if (!Array.isArray(composition)) {
+                  throw new Error("agent.cordis.yml must be a top-level array");
+                }
+                const personaRows = composition.filter(
+                  (row) => row?.id === "persona"
+                );
+                if (
+                  personaRows.length !== 1 ||
+                  personaRows[0].name !== "@deepseek-ai/dsh-persona"
+                ) {
+                  throw new Error("expected exactly one dsh-persona row");
+                }
+                const config = Config(personaRows[0].config);
+                if (config.prefix !== "Fixture preset" || config.complete !== true) {
+                  throw new Error("unexpected persona config: " + JSON.stringify(config));
+                }
+                console.log("dsh-persona Config accepted prefix fixture");
+                '
+
                 manifest="$files/profiles/fixture/package.json"
                 jq -e '
                   .name == "dsh-profile-fixture"

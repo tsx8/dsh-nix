@@ -38,7 +38,7 @@
           id = "persona";
           name = "@deepseek-ai/dsh-persona";
           config = {
-            text = "Fixture preset";
+            prefix = "Fixture preset";
             complete = true;
           };
         }

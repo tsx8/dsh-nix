@@ -64,7 +64,7 @@ written as plain Nix values; DSH validates their schemas at runtime.
               {
                 id = "persona";
                 name = "@deepseek-ai/dsh-persona";
-                config.text = "You are a software engineering assistant.";
+                config.prefix = "You are a software engineering assistant.";
               }
               {
                 id = "fs-local";

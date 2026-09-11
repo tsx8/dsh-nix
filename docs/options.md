@@ -95,7 +95,7 @@ attribute set of (submodule)
       {
         id = "persona";
         name = "@deepseek-ai/dsh-persona";
-        config.text = "You are a software engineering assistant.";
+        config.prefix = "You are a software engineering assistant.";
       }
     ];
     preset = {

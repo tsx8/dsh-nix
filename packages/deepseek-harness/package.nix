@@ -34,18 +34,18 @@ let
 in
 buildNpmPackage (finalAttrs: {
   pname = "deepseek-harness";
-  version = "0.1.2-rc.1";
+  version = "0.1.5-rc.1";
 
   __structuredAttrs = true;
 
   src = fetchurl {
     url = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-${finalAttrs.version}.tgz";
-    hash = "sha256-yjcGaAU61tCsMl6RnvX2XeU94At7rXgAjm+0It/ONTA=";
+    hash = "sha256-Gnlxnxx2ORisMOgZTfeDqTMMaxLV8EyVBzGj+KHD2dA=";
   };
 
   nodejs = nodejs_24;
 
-  npmDepsHash = "sha256-Pv9G7sZRtkeikH2X5x55I7DnvOx3qPmZVWNErQCh6tk=";
+  npmDepsHash = "sha256-nWXW3708BAIqw8NNe28zXutKUNc0jL5Ad/Z2tVdYh7Y=";
 
   patches = [
     ./remove-dev-dependencies.patch

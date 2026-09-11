@@ -24,15 +24,15 @@
 # fixed-output build.
 {
   x86_64-linux = {
-    fixture = "sha256-BmwsC0j+IMbiZF9cno9OOB1QABSTA5Z2r+RJIONzcnY=";
-    registry = "sha256-iUnVweb5bmDPX63uhAm9STQ97pNhPF9fXakoP41FEGU=";
+    fixture = "sha256-wA3wPrOVKshgwf5tqujZfygtzMw/1EreO1ZxzSbj/8I=";
+    registry = "sha256-5OoRSBiTPhV/yfPJqKI7jlB1PyM+dvNJ/fZdWxzTQbg=";
   };
   aarch64-linux = {
-    fixture = "sha256-BmwsC0j+IMbiZF9cno9OOB1QABSTA5Z2r+RJIONzcnY=";
-    registry = "sha256-iUnVweb5bmDPX63uhAm9STQ97pNhPF9fXakoP41FEGU=";
+    fixture = "sha256-wA3wPrOVKshgwf5tqujZfygtzMw/1EreO1ZxzSbj/8I=";
+    registry = "sha256-5OoRSBiTPhV/yfPJqKI7jlB1PyM+dvNJ/fZdWxzTQbg=";
   };
   aarch64-darwin = {
-    fixture = "sha256-BmwsC0j+IMbiZF9cno9OOB1QABSTA5Z2r+RJIONzcnY=";
-    registry = "sha256-iUnVweb5bmDPX63uhAm9STQ97pNhPF9fXakoP41FEGU=";
+    fixture = "sha256-wA3wPrOVKshgwf5tqujZfygtzMw/1EreO1ZxzSbj/8I=";
+    registry = "sha256-5OoRSBiTPhV/yfPJqKI7jlB1PyM+dvNJ/fZdWxzTQbg=";
   };
 }
